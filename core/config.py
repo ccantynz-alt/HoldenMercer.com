@@ -1,0 +1,58 @@
+from functools import lru_cache
+
+from pydantic import ConfigDict
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    anthropic_api_key: str = ""
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_region: str = "us-east-1"
+    bedrock_model_id: str = "anthropic.claude-sonnet-4-5"
+    supabase_url: str = ""
+    supabase_key: str = ""
+    database_url: str = ""
+    openai_api_key: str = ""
+    redis_url: str = "redis://localhost:6379/0"
+    log_level: str = "INFO"
+    environment: str = "development"
+
+    # Security
+    sovereign_api_key: str = ""        # legacy name — still works
+    sovereign_secret_key: str = ""     # preferred name (same purpose, takes precedence)
+    allowed_origins: str = "http://localhost:5173,http://localhost:8000"
+    development_mode: bool = False
+
+    # GlueCron — GitHub-based native memory
+    gluecron_github_token: str = ""   # PAT with repo:read scope
+    gluecron_github_org: str = ""     # org or username that owns GlueCron repos
+
+    # CronTech — deployment target + voice provider
+    crontech_api_url: str = ""        # e.g. https://api.crontech.ai
+    crontech_api_key: str = ""        # CronTech service account key
+    crontech_voice_url: str = ""      # WSS endpoint for CronTech voice (nova-compatible)
+    crontech_enabled: bool = False    # explicit opt-in flag
+
+    # Infrastructure mode — "DEEPGRAM" | "CRONTECH"
+    # Auto-promotes to CRONTECH when crontech_api_key is set and this is unset
+    infra_mode: str = "DEEPGRAM"
+
+    # Deepgram (used when infra_mode=DEEPGRAM)
+    deepgram_api_key: str = ""
+
+    # GlueCron write access — PAT needs repo:write scope (same token used for read)
+    gluecron_staging: bool = True     # commit to staging branch, not main
+
+    # Resiliency tuning
+    max_retries: int = 10
+    base_retry_delay: float = 1.0
+    max_retry_delay: float = 60.0
+    request_timeout: float = 120.0
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
