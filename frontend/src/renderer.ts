@@ -44,9 +44,9 @@ const FRAGMENT_SRC = /* glsl */`
     float noise = sin(d * 10.0 - u_time * 2.0 + intensity * 5.0) * 0.1;
     d += noise;
 
-    // Color: Sovereign deep black → electric blue, shifted by voice
-    vec3 color = vec3(0.02, 0.05, 0.1) / max(d, 1e-4);
-    color *= vec3(intensity * 0.5, 0.8, 1.0);
+    // Color: Sovereign editorial — black core → champagne gold halo, shifted by voice
+    vec3 color = vec3(0.10, 0.07, 0.03) / max(d, 1e-4);
+    color *= vec3(0.95, 0.78 + intensity * 0.15, 0.42 + intensity * 0.20);
 
     // Sharp disc with soft glow falloff
     float mask = smoothstep(0.42, 0.36, d);

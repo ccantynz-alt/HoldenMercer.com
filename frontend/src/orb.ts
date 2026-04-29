@@ -61,7 +61,7 @@ try {
   hudRenderer.start()
 } catch (err) {
   console.error('Renderer init failed:', err)
-  document.body.style.background = '#0b0b13'
+  document.body.style.background = '#0a0a0b'
 }
 
 // ── Audio pipeline ────────────────────────────────────────────────────────────
