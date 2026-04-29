@@ -1,21 +1,27 @@
-# The FastAPI backend lives elsewhere (Fly/Railway/Render) — don't let
-# Vercel auto-discover api/*.py as serverless functions. Vercel's Python
-# runtime requires a per-file `handler` callable; ours are FastAPI router
-# modules, so when invoked they raise FUNCTION_INVOCATION_FAILED.
+# What Vercel should NOT upload.
 #
-# The Vite SPA in frontend/dist is the only thing this deploy serves.
+# Vercel needs api/ + core/ + services/ for the Python function bundle,
+# and frontend/ for the static build. Everything else is dev-only.
+#
+# IMPORTANT: do NOT exclude api/requirements.txt — it's the slim dep list
+# Vercel uses to size the function. Excluding it makes Vercel fall back to
+# the heavyweight root requirements.txt which blows past the size limit.
 
-api/
-core/
-services/
-migrations/
-scripts/
+# Root requirements.txt has boto3/supabase/celery/etc — ~150+ MB of deps
+# we don't need on Vercel. The slim api/requirements.txt is the source of
+# truth for the function bundle.
+/requirements.txt
+
 tests/
-*.py
-requirements.txt
-pytest.ini
+scripts/
+migrations/
+.pytest_cache/
+__pycache__/
+
 Dockerfile
 docker-compose.yml
 .dockerignore
-.pytest_cache/
-__pycache__/
+
+# Backend-only deploy artefacts
+*.log
+*.sqlite

@@ -19,7 +19,6 @@ import time
 from typing import Any
 
 import anthropic
-import boto3
 from tenacity import (
     Retrying,
     retry_if_exception,
@@ -81,6 +80,16 @@ _bedrock_client: Any | None = None
 def _get_bedrock():
     global _bedrock_client
     if _bedrock_client is None:
+        # Lazy import — boto3 is heavyweight (~50 MB) and only needed when
+        # Anthropic exhausts retries. Vercel's slim function bundle omits it.
+        try:
+            import boto3
+        except ImportError as exc:
+            raise RuntimeError(
+                "Bedrock failover unavailable in this deploy — boto3 is not "
+                "installed. Run on a host with the full requirements.txt or "
+                "let Anthropic retries handle the request."
+            ) from exc
         _bedrock_client = boto3.client(
             service_name="bedrock-runtime",
             region_name=_settings.aws_region,
