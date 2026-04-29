@@ -1,0 +1,21 @@
+# The FastAPI backend lives elsewhere (Fly/Railway/Render) — don't let
+# Vercel auto-discover api/*.py as serverless functions. Vercel's Python
+# runtime requires a per-file `handler` callable; ours are FastAPI router
+# modules, so when invoked they raise FUNCTION_INVOCATION_FAILED.
+#
+# The Vite SPA in frontend/dist is the only thing this deploy serves.
+
+api/
+core/
+services/
+migrations/
+scripts/
+tests/
+*.py
+requirements.txt
+pytest.ini
+Dockerfile
+docker-compose.yml
+.dockerignore
+.pytest_cache/
+__pycache__/
