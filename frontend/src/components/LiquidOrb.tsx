@@ -70,8 +70,8 @@ export function LiquidOrb({ stream, status, size = 220 }: LiquidOrbProps) {
         transition:   'opacity 600ms ease, transform 300ms ease',
         transform:    isActive ? 'scale(1.05)' : 'scale(1)',
         filter:       isActive
-          ? 'drop-shadow(0 0 18px #1d4ed8) drop-shadow(0 0 40px #3b82f680)'
-          : 'drop-shadow(0 0 6px #1e3a5f)',
+          ? 'drop-shadow(0 0 18px #c9a961) drop-shadow(0 0 40px #c9a96180)'
+          : 'drop-shadow(0 0 6px #c9a96155)',
       }}
     />
   )

@@ -11,6 +11,7 @@ from api.gateway import router as gateway_router
 from api.command import router as command_router
 from api.refine_dictation import router as dictation_router
 from api.refine import router as refine_router
+from api.dictation_polish import router as polish_router
 from api.infra import router as infra_router
 from api.voice_config import router as voice_router
 from api.health_detail import router as health_detail_router
@@ -44,6 +45,7 @@ app.include_router(gateway_router)
 app.include_router(command_router)
 app.include_router(dictation_router)
 app.include_router(refine_router)
+app.include_router(polish_router)
 app.include_router(infra_router)
 app.include_router(voice_router)
 app.include_router(health_detail_router)
