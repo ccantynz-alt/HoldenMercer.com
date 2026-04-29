@@ -1,0 +1,97 @@
+"""
+Vercel serverless entry — temporary stopgap until CronTech is up.
+
+Vercel's Python runtime discovers an ASGI `app` exported from a file
+under /api and routes ALL /api/* traffic to it. We re-export the
+FastAPI app from api.main with two lightweight adjustments:
+
+  1. The /ws/audio WebSocket router is NOT mounted — Vercel functions
+     don't support WebSockets. Browser → Deepgram already streams
+     directly so this only affects the standalone /orb.html page.
+  2. The static-file mount of frontend/dist is skipped because Vercel
+     serves the SPA from `outputDirectory`, not via FastAPI.
+
+Heavyweight deps (boto3, supabase, celery, redis, sqlalchemy) are NOT
+installed in this deploy — see api/requirements.txt. The Bedrock
+failover is import-guarded; calling it when boto3 is missing returns
+a clean 502.
+
+When CronTech is live this file goes away — production traffic flips
+to the real backend host.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from core.config import get_settings
+from api.gateway import router as gateway_router
+from api.command import router as command_router
+from api.refine_dictation import router as dictation_router
+from api.refine import router as refine_router
+from api.dictation_polish import router as polish_router
+from api.infra import router as infra_router
+from api.voice_config import router as voice_router
+from api.health_detail import router as health_detail_router
+from api.router import router as cmd_router
+
+_settings = get_settings()
+
+logging.basicConfig(
+    level=getattr(logging, _settings.log_level.upper(), logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+)
+
+app = FastAPI(
+    title="HoldenMercer.com — Sovereign AI (Vercel stopgap)",
+    description="Stateless endpoints only. WebSocket + Batch live elsewhere.",
+    version="0.2.0-vercel",
+)
+
+_origins = [o.strip() for o in _settings.allowed_origins.split(",") if o.strip()]
+# Vercel preview deploys land at *.vercel.app — allow them so testing works.
+_origins.append("https://*.vercel.app")
+_origins.append("https://www.holdenmercer.com")
+_origins.append("https://holdenmercer.com")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins,
+    allow_methods=["POST", "GET", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+app.include_router(gateway_router)
+app.include_router(command_router)
+app.include_router(dictation_router)
+app.include_router(refine_router)
+app.include_router(polish_router)
+app.include_router(infra_router)
+app.include_router(voice_router)
+app.include_router(health_detail_router)
+app.include_router(cmd_router)
+
+
+_HEALTH_BODY = {
+    "ok":          True,
+    "deploy":      "vercel-stopgap",
+    "websocket":   False,
+    "bedrock":     False,
+    "note":        "Stateless endpoints only. Bedrock + WS land on CronTech.",
+    "anthropic":   {"ok": True, "latency_ms": None, "detail": "skipped on Vercel"},
+}
+
+
+@app.get("/api/health", tags=["ops"])
+async def health_api():
+    """Liveness probe. Skips the Anthropic round-trip so it stays fast."""
+    return _HEALTH_BODY
+
+
+@app.get("/health", tags=["ops"])
+async def health_root():
+    """Frontend StatusBar polls this at /health (no /api prefix)."""
+    return _HEALTH_BODY

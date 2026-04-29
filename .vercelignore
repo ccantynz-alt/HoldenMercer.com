@@ -1,0 +1,27 @@
+# What Vercel should NOT upload.
+#
+# Vercel needs api/ + core/ + services/ for the Python function bundle,
+# and frontend/ for the static build. Everything else is dev-only.
+#
+# IMPORTANT: do NOT exclude api/requirements.txt — it's the slim dep list
+# Vercel uses to size the function. Excluding it makes Vercel fall back to
+# the heavyweight root requirements.txt which blows past the size limit.
+
+# Root requirements.txt has boto3/supabase/celery/etc — ~150+ MB of deps
+# we don't need on Vercel. The slim api/requirements.txt is the source of
+# truth for the function bundle.
+/requirements.txt
+
+tests/
+scripts/
+migrations/
+.pytest_cache/
+__pycache__/
+
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Backend-only deploy artefacts
+*.log
+*.sqlite

@@ -1,0 +1,16 @@
+# Vercel function bundle — kept slim to stay well under the 250 MB limit.
+# Only what api/index.py actually imports at cold-start; heavyweight
+# extras (boto3 / supabase / celery / redis / sqlalchemy / psycopg2) are
+# deliberately omitted because their code paths are import-guarded and
+# CronTech will replace this stopgap before any of them are needed.
+
+fastapi>=0.115.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+python-multipart>=0.0.12
+python-dotenv>=1.0.0
+
+anthropic>=0.40.0
+openai>=1.50.0
+tenacity>=9.0.0
+httpx>=0.27.0
