@@ -1714,6 +1714,55 @@ body {
 }
 .ds-textarea::placeholder { color: var(--text-muted); font-style: italic; }
 
+/* Segment feed — the raw pane is a stream of <span> segments rather than a
+   textarea, since each segment carries its own timestamp + confidence. */
+.ds-segment-feed {
+  flex: 1;
+  padding: 24px 32px;
+  overflow-y: auto;
+  font-family: var(--font-display);
+  font-size: 19px;
+  line-height: 1.75;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+.ds-segment {
+  display: inline;
+  padding: 1px 0;
+  border-radius: 2px;
+  transition: background var(--transition);
+}
+.ds-segment + .ds-segment::before { content: ' '; }
+.ds-segment:hover { background: var(--accent-b-soft); }
+.ds-empty {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-style: italic;
+  color: var(--text-muted);
+  line-height: 1.7;
+}
+.ds-empty em {
+  font-style: normal;
+  font-family: var(--font-mono);
+  color: var(--accent-b-deep);
+  background: var(--accent-b-soft);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+  margin: 0 2px;
+}
+.ds-caps-pill {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--accent-e);
+  color: #fff;
+  margin-left: auto;
+}
+
 .ds-polished {
   flex: 1;
   padding: 24px 32px;

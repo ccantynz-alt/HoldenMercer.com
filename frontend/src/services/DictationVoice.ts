@@ -1,46 +1,31 @@
 /**
  * DictationVoice — Deepgram nova-2 streaming transcription tuned for
- * long-form dictation (not command refinement).
+ * long-form dictation, NOT command refinement.
  *
- * Differences vs. SovereignVoice:
- *   • No /api/refine call on each speech_final — segments commit straight
- *     to the writing surface.
- *   • Intercepts spoken commands ("new line", "period", "stop dictation"…)
- *     and turns them into formatting actions instead of literal text.
- *   • Exposes a stream of TranscriptEvents the UI can subscribe to.
- *
- * Architecture:
+ * Pipeline:
  *   Browser mic → MediaRecorder (250ms) → Deepgram WSS
  *     → interim   → onInterim()
- *     → final     → command parser → onCommit() OR onCommand()
+ *     → final     → onFinal(rawSegment)   // caller runs voice-cmd + smart-format
+ *
+ * Voxlen's audio capture is Tauri/Rust-bound (cpal); the web port uses
+ * MediaRecorder + WebSocket because we run in the browser. Voice commands
+ * are intentionally NOT parsed inside this class — callers feed final
+ * segments through `lib/voiceCommands` so all the matching rules live in
+ * one place and the parser stays unit-testable.
  */
 
-export type DictationStatus =
+export type DictationVoiceStatus =
   | 'idle'
   | 'connecting'
   | 'listening'
   | 'paused'
   | 'error'
 
-export type DictationCommand =
-  | 'new_line'
-  | 'new_paragraph'
-  | 'period'
-  | 'comma'
-  | 'question_mark'
-  | 'exclamation'
-  | 'colon'
-  | 'semicolon'
-  | 'delete_word'
-  | 'undo'
-  | 'stop'
-
 export interface DictationVoiceOptions {
   deepgramApiKey: string
-  onStatusChange:    (status: DictationStatus) => void
+  onStatusChange:    (status: DictationVoiceStatus) => void
   onInterim:         (text: string) => void
-  onCommit:          (text: string) => void
-  onCommand:         (cmd: DictationCommand) => void
+  onFinal:           (text: string, confidence: number) => void
   onError:           (msg: string) => void
   onStreamReady?:    (stream: MediaStream | null) => void
 }
@@ -61,42 +46,16 @@ interface DGTranscriptMessage {
   speech_final: boolean
 }
 
-const COMMAND_MAP: Record<string, DictationCommand> = {
-  'new line':          'new_line',
-  'newline':           'new_line',
-  'next line':         'new_line',
-  'new paragraph':     'new_paragraph',
-  'next paragraph':    'new_paragraph',
-  'period':            'period',
-  'full stop':         'period',
-  'comma':             'comma',
-  'question mark':     'question_mark',
-  'exclamation point': 'exclamation',
-  'exclamation mark':  'exclamation',
-  'colon':             'colon',
-  'semicolon':         'semicolon',
-  'semi colon':        'semicolon',
-  'delete that':       'delete_word',
-  'scratch that':      'delete_word',
-  'undo that':         'undo',
-  'undo':              'undo',
-  'stop dictation':    'stop',
-  'stop listening':    'stop',
-}
-
-function normalize(text: string): string {
-  return text.trim().toLowerCase().replace(/[.,!?;:]+$/, '')
-}
-
 export class DictationVoice {
   private socket:     WebSocket | null = null
   private microphone: MediaRecorder | null = null
-  private utterance = ''
-  private _status: DictationStatus = 'idle'
+  private utterance       = ''
+  private utteranceConf   = 1
+  private _status: DictationVoiceStatus = 'idle'
 
   constructor(private options: DictationVoiceOptions) {}
 
-  get status(): DictationStatus { return this._status }
+  get status(): DictationVoiceStatus { return this._status }
 
   async connect(): Promise<void> {
     if (this._status !== 'idle' && this._status !== 'error') return
@@ -134,31 +93,30 @@ export class DictationVoice {
     this.socket?.close()
     this.socket = null
     this.utterance = ''
+    this.utteranceConf = 1
     this.setStatus('idle')
   }
 
   private handleTranscript(msg: DGTranscriptMessage): void {
-    const transcript = msg.channel.alternatives[0]?.transcript ?? ''
+    const alt = msg.channel.alternatives[0]
+    const transcript = alt?.transcript ?? ''
+    const confidence = alt?.confidence ?? 1
 
     if (!msg.is_final) {
       this.options.onInterim(this.utterance + transcript)
       return
     }
 
-    this.utterance = (this.utterance + ' ' + transcript).trim()
+    this.utterance     = (this.utterance + ' ' + transcript).trim()
+    this.utteranceConf = Math.min(this.utteranceConf, confidence)
 
     if (msg.speech_final) {
       const full = this.utterance
-      this.utterance = ''
+      const conf = this.utteranceConf
+      this.utterance     = ''
+      this.utteranceConf = 1
       if (!full) return
-
-      const cmd = COMMAND_MAP[normalize(full)]
-      if (cmd) {
-        this.options.onCommand(cmd)
-        if (cmd === 'stop') this.disconnect()
-        return
-      }
-      this.options.onCommit(full)
+      this.options.onFinal(full, conf)
     }
   }
 
@@ -195,7 +153,7 @@ export class DictationVoice {
     this.microphone.start(250)
   }
 
-  private setStatus(status: DictationStatus): void {
+  private setStatus(status: DictationVoiceStatus): void {
     this._status = status
     this.options.onStatusChange(status)
   }

@@ -1,35 +1,39 @@
 /**
  * DictationStudio — long-form voice writing surface.
  *
- * Pipeline:
- *   Mic → Deepgram nova-2 → DictationVoice → segments append to writing surface
- *   "Polish" → POST /api/dictation/polish (style-aware Haiku) → polished prose
+ * Hot path:
+ *   Mic → Deepgram nova-2 → DictationVoice.onFinal(rawSegment)
+ *     → processVoiceCommands()  → if matched, executeVoiceCommand()
+ *                                  & append residual prose (if any)
+ *     → applySmartFormat()      → "alice at example dot com" → "alice@example.com"
+ *     → useDictationStore.addSegment(...)
  *
- * Features:
- *   • Real-time streaming dictation with live interim transcript
- *   • Voice commands ("new line", "period", "stop dictation"…)
- *   • 5 writing styles (Professional / Casual / Academic / Creative / Technical)
- *   • Session history with search (localStorage-backed)
- *   • Export to TXT / MD / JSON / SRT
+ * State for the LIVE session lives in Zustand (stores/dictation.ts).
+ * Past sessions live in localStorage via services/sessionLibrary.ts.
+ *
+ * "Polish" calls /api/dictation/polish which runs Haiku 4.5 with a
+ * style-specific system prompt and writes the result into
+ * `correctedTranscript` (whole-session view).
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   DictationVoice,
-  type DictationStatus,
-  type DictationCommand,
-} from '../services/DictationVoice'
+  type DictationVoiceStatus,
+} from '@/services/DictationVoice'
+import { useDictationStore, type TranscriptionSegment } from '@/stores/dictation'
 import {
-  DictationStore,
-  exportTxt, exportMarkdown, exportJson, exportSrt, downloadFile,
-  type DictationSession, type WritingStyle,
-} from '../services/dictationStore'
-import { LiquidOrb } from './LiquidOrb'
+  processVoiceCommands,
+  executeVoiceCommand,
+  applyTextCommand,
+} from '@/lib/voiceCommands'
+import { applySmartFormat } from '@/lib/smartFormat'
+import { downloadExport, type ExportFormat } from '@/lib/export'
+import { SessionLibrary, type SavedSession, type WritingStyle } from '@/services/sessionLibrary'
+import { LiquidOrb } from '@/components/LiquidOrb'
 
 const DG_KEY  = import.meta.env.VITE_DEEPGRAM_API_KEY  as string | undefined
 const API_KEY = import.meta.env.VITE_SOVEREIGN_API_KEY as string | undefined
-
-// ── Style metadata ─────────────────────────────────────────────────────────
 
 const STYLES: { id: WritingStyle; label: string; tagline: string }[] = [
   { id: 'professional', label: 'Professional', tagline: 'Clear, polished business prose.' },
@@ -75,85 +79,134 @@ const Trash = () => (
   </svg>
 )
 
-// ── Apply a voice command to the working text ──────────────────────────────
+// ── Utilities ──────────────────────────────────────────────────────────────
 
-function applyCommand(text: string, cmd: DictationCommand): string {
-  switch (cmd) {
-    case 'new_line':       return text + '\n'
-    case 'new_paragraph':  return text + '\n\n'
-    case 'period':         return text.replace(/\s+$/, '') + '. '
-    case 'comma':          return text.replace(/\s+$/, '') + ', '
-    case 'question_mark':  return text.replace(/\s+$/, '') + '? '
-    case 'exclamation':    return text.replace(/\s+$/, '') + '! '
-    case 'colon':          return text.replace(/\s+$/, '') + ': '
-    case 'semicolon':      return text.replace(/\s+$/, '') + '; '
-    case 'delete_word': {
-      const trimmed = text.replace(/\s+$/, '')
-      const idx = Math.max(trimmed.lastIndexOf(' '), trimmed.lastIndexOf('\n'))
-      return idx > 0 ? trimmed.slice(0, idx + 1) : ''
-    }
-    default:               return text
-  }
+function applyCaps(text: string, capsLock: boolean): string {
+  if (!capsLock) return text
+  return text.toUpperCase()
+}
+
+function timeAgo(ts: number): string {
+  const s = Math.floor((Date.now() - ts) / 1000)
+  if (s < 5)   return 'just now'
+  if (s < 60)  return `${s}s ago`
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`
+  return `${Math.floor(s / 3600)}h ago`
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
 
 export function DictationStudio() {
-  const [status, setStatus]       = useState<DictationStatus>('idle')
-  const [interim, setInterim]     = useState('')
-  const [text, setText]           = useState('')
-  const [polished, setPolished]   = useState<string | null>(null)
-  const [style, setStyle]         = useState<WritingStyle>('professional')
-  const [error, setError]         = useState<string | null>(null)
-  const [stream, setStream]       = useState<MediaStream | null>(null)
-  const [polishing, setPolishing] = useState(false)
-  const [sessionId, setSessionId] = useState<string | null>(null)
-  const [title, setTitle]         = useState('Untitled session')
-  const [sessions, setSessions]   = useState<DictationSession[]>([])
-  const [search, setSearch]       = useState('')
-  const [autoSavedAt, setSavedAt] = useState<number | null>(null)
-  const [view, setView]           = useState<'write' | 'history'>('write')
+  // ── Zustand: live session state ────────────────────────────────────────
+  const status              = useDictationStore(s => s.status)
+  const segments            = useDictationStore(s => s.segments)
+  const wordCount           = useDictationStore(s => s.wordCount)
+  const correctedTranscript = useDictationStore(s => s.correctedTranscript)
+  const capsLock            = useDictationStore(s => s.capsLock)
+  const setStatus           = useDictationStore(s => s.setStatus)
+  const addSegment          = useDictationStore(s => s.addSegment)
+  const setCorrected        = useDictationStore(s => s.setCorrectedTranscript)
+  const clearSession        = useDictationStore(s => s.clearSession)
 
-  const voiceRef    = useRef<DictationVoice | null>(null)
-  const segmentsRef = useRef<DictationSession['segments']>([])
-  const undoRef     = useRef<string[]>([])
+  // ── Local UI state ────────────────────────────────────────────────────
+  const [interim,     setInterim]   = useState('')
+  const [style,       setStyle]     = useState<WritingStyle>('professional')
+  const [error,       setError]     = useState<string | null>(null)
+  const [stream,      setStream]    = useState<MediaStream | null>(null)
+  const [polishing,   setPolishing] = useState(false)
+  const [sessionId,   setSessionId] = useState<string | null>(null)
+  const [title,       setTitle]     = useState('Untitled session')
+  const [library,     setLibrary]   = useState<SavedSession[]>([])
+  const [search,      setSearch]    = useState('')
+  const [autoSavedAt, setSavedAt]   = useState<number | null>(null)
 
-  // Load sessions on mount
-  useEffect(() => { setSessions(DictationStore.list()) }, [])
+  const voiceRef = useRef<DictationVoice | null>(null)
+
+  // Load library on mount
+  useEffect(() => { setLibrary(SessionLibrary.list()) }, [])
 
   // Cleanup voice on unmount
   useEffect(() => () => { voiceRef.current?.disconnect() }, [])
 
-  // Auto-save (debounced) every time text or style changes
+  // Auto-save (debounced) whenever segments / polish / style / title change
   useEffect(() => {
     if (!sessionId) return
     const t = setTimeout(() => {
-      const updated = DictationStore.update(sessionId, {
-        raw_text: text,
-        polished,
+      const updated = SessionLibrary.update(sessionId, {
+        segments,
+        polished: correctedTranscript || null,
         style,
         title,
-        segments: segmentsRef.current,
       })
       if (updated) {
         setSavedAt(Date.now())
-        setSessions(DictationStore.list())
+        setLibrary(SessionLibrary.list())
       }
     }, 600)
     return () => clearTimeout(t)
-  }, [text, polished, style, title, sessionId])
+  }, [segments, correctedTranscript, style, title, sessionId])
 
-  const filtered = useMemo(
-    () => DictationStore.search(search),
-    [search, sessions],
+  const filtered = useMemo(() => SessionLibrary.search(search), [search, library])
+
+  const fullText = useMemo(
+    () => segments.map(s => s.correctedText || s.text).join(' '),
+    [segments],
   )
 
-  const wordCount = useMemo(() => {
-    const t = text.trim()
-    return t ? t.split(/\s+/).length : 0
-  }, [text])
+  // ── Final-segment pipeline (voice cmd → smart format → store) ──────────
+  const handleFinalSegment = useCallback((rawText: string, confidence: number) => {
+    setInterim('')
 
-  // ── Connect / disconnect mic ────────────────────────────────────────────
+    // 1. Voice command extraction
+    const cmd = processVoiceCommands(rawText)
+    let textToCommit = cmd.matched ? cmd.remainingText : rawText
+
+    if (cmd.matched && cmd.action) {
+      const inserted = executeVoiceCommand(cmd.action)
+
+      // If a punctuation/glyph command produced output AND there's still
+      // residual prose, splice them together using applyTextCommand.
+      if (inserted !== null) {
+        if (textToCommit) {
+          // Residual prose first, then the punctuation
+          textToCommit = applyTextCommand(textToCommit, inserted)
+        } else {
+          // Pure command — append the glyph to the previous segment
+          const last = useDictationStore.getState().segments.slice(-1)[0]
+          if (last) {
+            useDictationStore.getState().updateSegment(last.id, {
+              text: applyTextCommand(last.text, inserted),
+            })
+          }
+        }
+      }
+
+      // "stop" terminates dictation
+      if (cmd.action === 'stop') {
+        voiceRef.current?.disconnect()
+      }
+    }
+
+    if (!textToCommit) return
+
+    // 2. Smart format (emails, URLs, hashtags, markdown, digit runs)
+    const formatted = applySmartFormat(textToCommit)
+
+    // 3. Caps lock
+    const final = applyCaps(formatted, capsLock)
+
+    // 4. Commit segment
+    addSegment({
+      id:             crypto.randomUUID(),
+      text:           final,
+      timestamp:      new Date(),
+      confidence,
+      isFinal:        true,
+      grammarApplied: false,
+    })
+  }, [capsLock, addSegment])
+
+  // ── Connect / disconnect ───────────────────────────────────────────────
   const handleConnect = useCallback(async () => {
     if (!DG_KEY) {
       setError('VITE_DEEPGRAM_API_KEY is not set. Add it to frontend/.env.')
@@ -164,36 +217,18 @@ export function DictationStudio() {
 
     const voice = new DictationVoice({
       deepgramApiKey: DG_KEY,
-      onStatusChange: setStatus,
+      onStatusChange: (s) => {
+        // Map DictationVoiceStatus → store DictationStatus 1:1
+        setStatus(s)
+      },
       onInterim:      setInterim,
-      onCommit: (segment) => {
-        setInterim('')
-        undoRef.current.push(text)
-        const ts = Date.now()
-        segmentsRef.current = [
-          ...segmentsRef.current,
-          { ts, text: segment, raw: segment },
-        ]
-        setText(prev => {
-          const sep = prev && !/\s$/.test(prev) ? ' ' : ''
-          return prev + sep + segment
-        })
-      },
-      onCommand: (cmd) => {
-        if (cmd === 'undo') {
-          const last = undoRef.current.pop()
-          if (last !== undefined) setText(last)
-          return
-        }
-        undoRef.current.push(text)
-        setText(prev => applyCommand(prev, cmd))
-      },
+      onFinal:        handleFinalSegment,
       onError: (msg) => { setError(msg); setStatus('error') },
-      onStreamReady: setStream,
+      onStreamReady:  setStream,
     })
     voiceRef.current = voice
     await voice.connect()
-  }, [sessionId, text])  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sessionId, handleFinalSegment, setStatus])  // eslint-disable-line
 
   const handleDisconnect = useCallback(() => {
     voiceRef.current?.disconnect()
@@ -201,47 +236,43 @@ export function DictationStudio() {
     setInterim('')
   }, [])
 
-  // ── Session lifecycle ───────────────────────────────────────────────────
-  const startNewSession = useCallback((seed?: Partial<DictationSession>) => {
-    const s = DictationStore.create({ style, ...seed })
+  // ── Session lifecycle ─────────────────────────────────────────────────
+  const startNewSession = useCallback((seed?: Partial<SavedSession>) => {
+    const s = SessionLibrary.create({ style, ...seed })
     setSessionId(s.id)
     setTitle(s.title)
-    setText(s.raw_text)
-    setPolished(s.polished)
     setStyle(s.style)
-    segmentsRef.current = s.segments
-    undoRef.current = []
-    setSessions(DictationStore.list())
-    setView('write')
-  }, [style])
+    clearSession()
+    s.segments.forEach(addSegment)
+    if (s.polished) setCorrected(s.polished)
+    setLibrary(SessionLibrary.list())
+  }, [style, clearSession, addSegment, setCorrected])
 
   const loadSession = useCallback((id: string) => {
-    const s = DictationStore.get(id)
+    const s = SessionLibrary.get(id)
     if (!s) return
     setSessionId(s.id)
     setTitle(s.title)
-    setText(s.raw_text)
-    setPolished(s.polished)
     setStyle(s.style)
-    segmentsRef.current = s.segments
-    undoRef.current = []
-    setView('write')
-  }, [])
+    clearSession()
+    s.segments.forEach(addSegment)
+    if (s.polished) setCorrected(s.polished)
+    else setCorrected('')
+  }, [clearSession, addSegment, setCorrected])
 
   const deleteSession = useCallback((id: string) => {
-    DictationStore.remove(id)
-    setSessions(DictationStore.list())
+    SessionLibrary.remove(id)
+    setLibrary(SessionLibrary.list())
     if (sessionId === id) {
       setSessionId(null)
-      setText('')
-      setPolished(null)
-      segmentsRef.current = []
+      clearSession()
+      setCorrected('')
     }
-  }, [sessionId])
+  }, [sessionId, clearSession, setCorrected])
 
-  // ── Polish (style-aware Haiku grammar correction) ───────────────────────
+  // ── Polish ────────────────────────────────────────────────────────────
   const handlePolish = useCallback(async () => {
-    const body = text.trim()
+    const body = fullText.trim()
     if (!body) return
     setPolishing(true)
     setError(null)
@@ -258,33 +289,24 @@ export function DictationStudio() {
         throw new Error((err as { detail?: string }).detail ?? `HTTP ${res.status}`)
       }
       const data = await res.json() as { polished: string }
-      setPolished(data.polished)
+      setCorrected(data.polished)
+      // Mark all segments as grammar-applied so MD export shows the badge
+      useDictationStore.getState().segments.forEach((seg) => {
+        useDictationStore.getState().updateSegment(seg.id, { grammarApplied: true })
+      })
     } catch (err) {
       setError(`Polish failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setPolishing(false)
     }
-  }, [text, style, sessionId])
+  }, [fullText, style, sessionId, setCorrected])
 
-  // ── Export handlers ────────────────────────────────────────────────────
-  const exportAs = useCallback((kind: 'txt' | 'md' | 'json' | 'srt') => {
-    const session: DictationSession = {
-      id:         sessionId ?? crypto.randomUUID(),
-      title:      title || 'Untitled session',
-      style,
-      raw_text:   text,
-      polished,
-      segments:   segmentsRef.current,
-      word_count: wordCount,
-      created:    Date.now(),
-      updated:    Date.now(),
-    }
-    const safe = (title || 'dictation').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase().slice(0, 60)
-    if (kind === 'txt')  downloadFile(`${safe}.txt`,  exportTxt(session),      'text/plain')
-    if (kind === 'md')   downloadFile(`${safe}.md`,   exportMarkdown(session), 'text/markdown')
-    if (kind === 'json') downloadFile(`${safe}.json`, exportJson(session),     'application/json')
-    if (kind === 'srt')  downloadFile(`${safe}.srt`,  exportSrt(session),      'application/x-subrip')
-  }, [sessionId, title, style, text, polished, wordCount])
+  // ── Export ────────────────────────────────────────────────────────────
+  const exportAs = useCallback((kind: ExportFormat) => {
+    const segs: TranscriptionSegment[] = useDictationStore.getState().segments
+    if (segs.length === 0) return
+    downloadExport(segs, kind, { title: title || 'dictation' })
+  }, [title])
 
   const isActive = status === 'listening' || status === 'connecting'
 
@@ -314,9 +336,7 @@ export function DictationStudio() {
               onClick={() => loadSession(s.id)}
             >
               <span className="ds-session-title">{s.title || 'Untitled'}</span>
-              <span className="ds-session-meta">
-                {s.word_count} words · {s.style}
-              </span>
+              <span className="ds-session-meta">{s.word_count} words · {s.style}</span>
               <span
                 className="ds-session-del"
                 role="button"
@@ -331,7 +351,6 @@ export function DictationStudio() {
       </aside>
 
       <section className="ds-main">
-        {/* ── Header bar ─────────────────────────────────────────────── */}
         <header className="ds-toolbar">
           <input
             className="ds-title"
@@ -368,7 +387,7 @@ export function DictationStudio() {
             <button
               className="ds-btn ds-btn-gold"
               onClick={handlePolish}
-              disabled={polishing || !text.trim()}
+              disabled={polishing || !fullText.trim()}
               title="Run grammar + style polish (Haiku 4.5)"
             >
               <Sparkle /> {polishing ? 'Polishing…' : 'Polish'}
@@ -376,14 +395,16 @@ export function DictationStudio() {
           </div>
         </header>
 
-        {/* ── Live transcript bubble ─────────────────────────────────── */}
         {(isActive || interim) && (
           <div className="ds-live">
             <span className="ds-live-pulse" />
             <span className="ds-live-label">LIVE</span>
             <span className={`ds-live-text ${interim ? '' : 'muted'}`}>
-              {interim || (status === 'listening' ? 'Speak — say "new line", "period", or "stop dictation".' : 'Connecting…')}
+              {interim || (status === 'listening'
+                ? 'Speak — say "new line", "period", or "stop dictation".'
+                : 'Connecting…')}
             </span>
+            {capsLock && <span className="ds-caps-pill">CAPS</span>}
           </div>
         )}
 
@@ -394,36 +415,55 @@ export function DictationStudio() {
           </div>
         )}
 
-        {/* ── Writing surface (split: raw / polished) ────────────────── */}
         <div className="ds-surface">
+          {/* Raw segment view (read-only — segments are source of truth) */}
           <div className="ds-pane">
             <div className="ds-pane-header">
               <span className="ds-pane-label">Raw</span>
-              <span className="ds-pane-meta">{wordCount} words</span>
+              <span className="ds-pane-meta">{wordCount} words · {segments.length} segments</span>
             </div>
-            <textarea
-              className="ds-textarea"
-              value={text}
-              onChange={e => setText(e.target.value)}
-              placeholder="Speak or type… your words land here. Voice commands: new line, new paragraph, period, comma, question mark, scratch that, stop dictation."
-              spellCheck
-            />
+            <div className="ds-segment-feed">
+              {segments.length === 0 && (
+                <p className="ds-empty">
+                  Speak or type to start. Voice commands: <em>new line</em>, <em>new paragraph</em>,
+                  <em> period</em>, <em>comma</em>, <em>question mark</em>, <em>scratch that</em>,
+                  <em> caps on</em>, <em>stop dictation</em>. Smart format auto-converts spoken
+                  emails ("alice at example dot com"), URLs, hashtags, and markdown headings.
+                </p>
+              )}
+              {segments.map(seg => (
+                <span
+                  key={seg.id}
+                  className="ds-segment"
+                  title={`${(seg.confidence * 100).toFixed(0)}% confidence · ${seg.timestamp.toLocaleTimeString()}`}
+                >
+                  {seg.correctedText || seg.text}
+                </span>
+              ))}
+            </div>
           </div>
 
+          {/* Polished view */}
           <div className="ds-pane">
             <div className="ds-pane-header">
               <span className="ds-pane-label">Polished</span>
-              <span className="ds-pane-meta">{polished ? `${polished.trim().split(/\s+/).filter(Boolean).length} words` : 'not yet polished'}</span>
+              <span className="ds-pane-meta">
+                {correctedTranscript
+                  ? `${correctedTranscript.trim().split(/\s+/).filter(Boolean).length} words`
+                  : 'not yet polished'}
+              </span>
             </div>
             <div className="ds-polished">
-              {polished
-                ? polished.split(/\n\n+/).map((p, i) => <p key={i}>{p}</p>)
-                : <p className="muted">Click <strong>Polish</strong> to run grammar + style ({STYLES.find(s => s.id === style)?.label}) refinement.</p>}
+              {correctedTranscript
+                ? correctedTranscript.split(/\n\n+/).map((p, i) => <p key={i}>{p}</p>)
+                : <p className="muted">
+                    Click <strong>Polish</strong> to run grammar + style
+                    {' '}({STYLES.find(s => s.id === style)?.label}) refinement.
+                  </p>}
             </div>
           </div>
         </div>
 
-        {/* ── Footer ─────────────────────────────────────────────────── */}
         <footer className="ds-footer">
           <div className="ds-orb-mini">
             <LiquidOrb stream={stream} status={status === 'listening' ? 'listening' : 'idle'} size={56} />
@@ -446,12 +486,4 @@ export function DictationStudio() {
       </section>
     </div>
   )
-}
-
-function timeAgo(ts: number): string {
-  const s = Math.floor((Date.now() - ts) / 1000)
-  if (s < 5)   return 'just now'
-  if (s < 60)  return `${s}s ago`
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`
-  return `${Math.floor(s / 3600)}h ago`
 }
