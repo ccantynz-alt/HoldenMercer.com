@@ -25,9 +25,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY core/       ./core/
 COPY services/   ./services/
 COPY api/        ./api/
-COPY dictation/  ./dictation/
-COPY workers/    ./workers/
-COPY memory/     ./memory/
+COPY migrations/ ./migrations/
 
 # Frontend build output — placed where api/main.py expects it
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
