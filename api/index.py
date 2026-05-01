@@ -52,14 +52,17 @@ app = FastAPI(
 )
 
 _origins = [o.strip() for o in _settings.allowed_origins.split(",") if o.strip()]
-# Vercel preview deploys land at *.vercel.app — allow them so testing works.
-_origins.append("https://*.vercel.app")
 _origins.append("https://www.holdenmercer.com")
 _origins.append("https://holdenmercer.com")
+
+# Vercel preview deploys land on *.vercel.app — Starlette's allow_origins is
+# literal-match only, so wildcards belong in allow_origin_regex.
+_VERCEL_PREVIEW_RE = r"https://[a-z0-9-]+\.vercel\.app"
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
+    allow_origin_regex=_VERCEL_PREVIEW_RE,
     allow_methods=["POST", "GET", "OPTIONS"],
     allow_headers=["*"],
 )
