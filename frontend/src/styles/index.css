@@ -1812,3 +1812,573 @@ body {
   margin-left: auto;
 }
 .ds-export-label { color: var(--text-muted); margin-right: 4px; }
+
+/* ── Dashboard shell — PR A rebuild ─────────────────────────────────────── */
+
+.hm-app {
+  display: grid;
+  grid-template-rows: 56px 1fr;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg-base);
+}
+
+.hm-app-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.hm-app-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+.hm-app-brand svg { color: var(--accent-b-deep); }
+
+.hm-settings-btn {
+  margin-left: auto;
+}
+
+.hm-app-body {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 0;
+}
+
+.hm-app-main {
+  overflow: auto;
+  background: var(--bg-base);
+}
+
+/* ── Sidebar ────────────────────────────────────────────────────────────── */
+
+.hm-sidebar {
+  border-right: 1px solid var(--border);
+  background: var(--bg-surface);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.hm-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px;
+}
+
+.hm-sidebar-title {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.hm-sidebar-empty {
+  padding: 16px 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.hm-project-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hm-project-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition);
+  text-align: left;
+}
+.hm-project-item:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+.hm-project-item.is-active {
+  background: var(--bg-elevated);
+  border-color: var(--border-bright);
+  color: var(--text-primary);
+}
+
+.hm-project-name {
+  font-weight: 500;
+}
+
+.hm-project-status {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+
+.hm-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.hm-icon-btn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-bright);
+  color: var(--text-primary);
+}
+
+.hm-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent-b-deep);
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.hm-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  background: var(--accent-e);
+  color: #fff;
+  border: 1px solid var(--accent-e);
+  border-radius: var(--radius);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.hm-btn-primary:hover:not(:disabled) {
+  background: #1a1a1c;
+  box-shadow: var(--shadow-md);
+}
+.hm-btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.hm-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.hm-btn-ghost:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+/* ── Inputs ─────────────────────────────────────────────────────────────── */
+
+.hm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hm-field-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.hm-input,
+.hm-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  transition: border-color var(--transition), background var(--transition);
+}
+.hm-input:focus,
+.hm-textarea:focus {
+  outline: none;
+  border-color: var(--accent-b);
+  background: var(--bg-base);
+}
+
+.hm-textarea {
+  resize: vertical;
+  min-height: 80px;
+  font-family: var(--font-ui);
+}
+
+/* ── Modal ──────────────────────────────────────────────────────────────── */
+
+.hm-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 11, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+}
+
+.hm-modal {
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.hm-modal-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.hm-modal-lede {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.hm-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* ── Drawer (Settings) ──────────────────────────────────────────────────── */
+
+.hm-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 11, 0.4);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+}
+
+.hm-drawer {
+  width: min(440px, 100vw);
+  height: 100vh;
+  background: var(--bg-base);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.hm-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg-base);
+  z-index: 1;
+}
+
+.hm-drawer-title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.hm-drawer-section {
+  padding: 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hm-drawer-section:last-child { border-bottom: none; }
+
+.hm-drawer-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hm-drawer-help {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.hm-drawer-help code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-elevated);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.hm-drawer-confirm {
+  font-size: 12px;
+  color: var(--accent-b-deep);
+}
+.hm-drawer-confirm code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.hm-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hm-radio {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--transition);
+  align-items: flex-start;
+}
+.hm-radio:hover {
+  background: var(--bg-elevated);
+}
+.hm-radio input { margin-top: 2px; accent-color: var(--accent-e); }
+.hm-radio span { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.hm-radio-help { font-size: 11px; color: var(--text-muted); }
+
+/* ── Project shell ──────────────────────────────────────────────────────── */
+
+.hm-project-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.hm-project-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 24px 32px 16px;
+  gap: 16px;
+}
+
+.hm-project-title {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.hm-project-tagline {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 14px;
+  max-width: 640px;
+  line-height: 1.5;
+}
+
+.hm-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  border: 1px solid var(--border-bright);
+}
+.hm-status-idle         { background: var(--bg-elevated); color: var(--text-muted); }
+.hm-status-building     { background: var(--accent-b-soft); color: var(--accent-b-deep); border-color: var(--accent-b); }
+.hm-status-gate-failing { background: var(--error-soft); color: var(--error); border-color: var(--error); }
+.hm-status-shipped      { background: var(--accent-e); color: #fff; border-color: var(--accent-e); }
+
+.hm-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 32px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hm-tab {
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+  margin-bottom: -1px;
+}
+.hm-tab:hover { color: var(--text-primary); }
+.hm-tab.is-active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent-e);
+}
+
+.hm-tab-body {
+  flex: 1;
+  overflow: auto;
+  padding: 24px 32px;
+}
+
+/* ── Empty state ────────────────────────────────────────────────────────── */
+
+.hm-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+  padding: 32px;
+  gap: 8px;
+}
+
+.hm-empty-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hm-empty-body {
+  color: var(--text-muted);
+  max-width: 440px;
+  line-height: 1.6;
+}
+
+/* ── Placeholder for stub tabs ──────────────────────────────────────────── */
+
+.hm-placeholder {
+  max-width: 640px;
+  padding: 32px;
+  border: 1px dashed var(--border-bright);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.hm-placeholder-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.hm-placeholder-body {
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+/* ── Brief ──────────────────────────────────────────────────────────────── */
+
+.hm-brief {
+  max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.hm-brief-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hm-brief-title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hm-brief-help {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.hm-brief-textarea {
+  font-size: 15px;
+  line-height: 1.7;
+  min-height: 320px;
+}
+
+.hm-brief-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.hm-brief-status {
+  font-size: 12px;
+  color: var(--text-muted);
+}

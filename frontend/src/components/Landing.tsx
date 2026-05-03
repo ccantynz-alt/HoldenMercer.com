@@ -11,24 +11,24 @@ interface LandingProps {
 
 const FEATURES = [
   {
-    kicker: 'Voice',
-    title:  'Dictation Studio',
-    body:   'Real-time streaming transcription. Say "new line," "period," or "stop dictation"  — your words shape themselves on the page. Switch between five writing styles with one click.',
+    kicker: 'Console',
+    title:  'Opus with full tools',
+    body:   'Claude Opus 4.7 with file r/w, bash, search, web fetch, and cross-repo read. Paste any URL into the chat — it reads it. Point at any of your other repos — it reads them. Autonomous by default, smart-pauses on architecture and destructive ops.',
   },
   {
-    kicker: 'Refine',
-    title:  'AI Grammar & Style',
-    body:   'Haiku 4.5 polishes raw dictation into Professional, Casual, Academic, Creative, or Technical prose. Your raw transcript stays — the polish is always reversible.',
+    kicker: 'Memory',
+    title:  'The repo IS the memory',
+    body:   'Every session writes its summary, decisions, and file changes back to the project repo. New sessions resume cold by reading the brief and the timeline. No more "where were we?" — Claude reads itself in.',
   },
   {
-    kicker: 'Execute',
-    title:  'Command Center',
-    body:   'Brainstorm with extended thinking. Switch the Power User toggle to send commands straight to the agentic Opus 4.7 engine, or queue them for the overnight Batch API.',
+    kicker: 'Gate',
+    title:  'Programmatic quality gate',
+    body:   'Every change runs lint + typecheck + tests before it commits. Failures block the commit. No more silent breakage halfway through a long build.',
   },
   {
-    kicker: 'Swarm',
-    title:  'Task Swarm',
-    body:   'Deploy a fleet of coding agents over GitHub via GlueCron — search, plan, edit, PR — all observable from a single dashboard. Native memory in the codebase, not a vector store.',
+    kicker: 'Repair',
+    title:  'Self-healing builds',
+    body:   'When the gate fails, the Shadow Architect loop kicks in: debug, fix, re-gate — up to 5 iterations. You watch it auto-repair instead of debugging it yourself. Real Claude doesn’t do this. Yours does.',
   },
 ]
 
@@ -48,28 +48,29 @@ export function Landing({ onEnter }: LandingProps) {
 
       {/* Hero */}
       <section className="lp-hero">
-        <span className="lp-eyebrow">Sovereign AI · Built by hand · Voice-first</span>
+        <span className="lp-eyebrow">An AI website builder console · Sovereign · Built by hand</span>
         <h1 className="lp-h1">
-          Speak it.<br />
-          <em>Refine</em> it. <span className="gold">Ship it.</span>
+          Brief it.<br />
+          <em>Build</em> it. <span className="gold">Ship it.</span>
         </h1>
         <p className="lp-lede">
-          A writing surface and command center that listens. Streaming dictation,
-          style-aware polish, agentic execution — wired together so a single sentence
-          can travel from your voice to a pull request without ever touching a keyboard.
+          A power-user console for running many Claude-driven projects in parallel —
+          designed around the things Claude is bad at. Persistent memory across
+          sessions, programmatic gates that block broken commits, and self-repairing
+          builds that fix themselves instead of waiting for you to debug.
         </p>
         <div className="lp-cta-row">
           <button className="lp-btn lp-btn-primary lp-btn-lg" onClick={onEnter}>
-            Enter Dashboard
+            Enter Console
           </button>
           <a className="lp-btn lp-btn-ghost lp-btn-lg" href="#features">See how it works</a>
         </div>
 
         <div className="lp-hero-stats">
-          <div><strong>nova-2</strong><span>live transcription</span></div>
-          <div><strong>Haiku 4.5</strong><span>refine + polish</span></div>
-          <div><strong>Opus 4.7</strong><span>agentic execution</span></div>
-          <div><strong>Batch API</strong><span>overnight queue</span></div>
+          <div><strong>Opus 4.7</strong><span>full tool use</span></div>
+          <div><strong>GlueCron</strong><span>GitHub is memory</span></div>
+          <div><strong>Gate</strong><span>lint / type / test</span></div>
+          <div><strong>Repair</strong><span>auto-fix on fail</span></div>
         </div>
       </section>
 
@@ -78,7 +79,7 @@ export function Landing({ onEnter }: LandingProps) {
 
       {/* Features */}
       <section className="lp-features" id="features">
-        <h2 className="lp-h2">Four surfaces. <em>One mind.</em></h2>
+        <h2 className="lp-h2">Built for the long build.</h2>
         <div className="lp-feature-grid">
           {FEATURES.map(f => (
             <article key={f.title} className="lp-feature">
@@ -95,11 +96,12 @@ export function Landing({ onEnter }: LandingProps) {
         <h2 className="lp-h2">Engineered, not <em>assembled</em>.</h2>
         <ul className="lp-stack-list">
           <li><b>Frontend</b> · React + Vite + WebGL Liquid Orb · 120 fps shader feedback</li>
-          <li><b>Voice</b> · Deepgram nova-2 over WebSocket · 300 ms endpointing for instant commits</li>
-          <li><b>Refinement</b> · Anthropic Haiku 4.5 with prompt caching · style-aware polish</li>
-          <li><b>Execution</b> · Anthropic Opus 4.7 with extended thinking + tool use</li>
-          <li><b>Memory</b> · GlueCron — GitHub <em>is</em> the database. Branches are timelines.</li>
-          <li><b>Resilience</b> · Bedrock fail-over + Redis-backed Celery queue · zero downtime under load</li>
+          <li><b>Brains</b> · Anthropic Opus 4.7 with extended thinking + full tool use (file r/w, bash, search, web fetch, cross-repo read)</li>
+          <li><b>Memory</b> · GlueCron — GitHub <em>is</em> the database. Sessions write summaries back to the repo. New sessions resume by reading them.</li>
+          <li><b>Gate</b> · Programmatic checks (lint + typecheck + tests) on every change. No green, no commit.</li>
+          <li><b>Repair</b> · Shadow Architect loop · auto-debug on failure, up to 5 iterations</li>
+          <li><b>Resilience</b> · Bedrock fail-over · zero downtime when Anthropic is overloaded</li>
+          <li><b>Input</b> · Native OS dictation. iPad, Mac, Windows — your device's mic, not our STT.</li>
         </ul>
       </section>
 
@@ -107,13 +109,15 @@ export function Landing({ onEnter }: LandingProps) {
       <section className="lp-manifesto" id="manifesto">
         <h2 className="lp-h2">A note on <em>sovereignty</em>.</h2>
         <p>
-          Most "AI products" are thin shells around a chat box. This one is built the other way around —
-          the model is a tool inside a workshop you control. Your transcripts live on your disk. Your
-          polished drafts live in your repo. The agents you deploy report back to you, not to a SaaS
-          dashboard you don't own. That's the line: <em>your words, your work, your machine.</em>
+          Most "AI builders" are thin shells around a chat box that forgets what you
+          told it last week. This one is built the other way around — Claude is a
+          tool inside a workshop you control. Your projects live in your GitHub.
+          Your decisions are committed to a branch with a timestamp. Your API key
+          stays in your browser. Nothing reports back to a SaaS dashboard you
+          don't own. That's the line: <em>your work, your repo, your machine.</em>
         </p>
         <button className="lp-btn lp-btn-primary lp-btn-lg" onClick={onEnter}>
-          Enter the Dashboard →
+          Enter the Console →
         </button>
       </section>
 
