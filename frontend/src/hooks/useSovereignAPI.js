@@ -31,7 +31,6 @@ export function useSovereignAPI() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  // ── Text command ─────────────────────────────────────────────────────────
   const sendCommand = useCallback(async ({ text, mode }) => {
     setLoading(true)
     setError(null)
@@ -45,40 +44,6 @@ export function useSovereignAPI() {
     }
   }, [])
 
-  // ── Audio blob → Whisper → Haiku ─────────────────────────────────────────
-  const refineAudio = useCallback(async (audioBlob, sessionId) => {
-    setLoading(true)
-    setError(null)
-    try {
-      const ext = audioBlob.type.includes('ogg') ? '.ogg'
-                : audioBlob.type.includes('mp4') ? '.mp4'
-                : '.webm'
-      const form = new FormData()
-      form.append('audio', audioBlob, `recording${ext}`)
-      form.append('session_id', sessionId || uuidv4())
-
-      const headers = {}
-      if (API_KEY) headers['X-Sovereign-Key'] = API_KEY
-
-      const res = await fetch('/api/refine-dictation', {
-        method: 'POST',
-        headers,
-        body: form,
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }))
-        throw new Error(err.detail || `HTTP ${res.status}`)
-      }
-      return res.json()
-    } catch (err) {
-      setError(err.message)
-      return null
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  // ── Health probe ─────────────────────────────────────────────────────────
   const checkHealth = useCallback(async () => {
     try {
       const res = await fetch('/health')
@@ -88,5 +53,5 @@ export function useSovereignAPI() {
     }
   }, [])
 
-  return { sendCommand, refineAudio, checkHealth, loading, error }
+  return { sendCommand, checkHealth, loading, error }
 }

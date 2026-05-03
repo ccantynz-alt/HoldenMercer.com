@@ -1,7 +1,6 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_DEEPGRAM_API_KEY?:  string
   readonly VITE_SOVEREIGN_API_KEY?: string
 }
 

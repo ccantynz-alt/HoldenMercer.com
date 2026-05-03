@@ -1,23 +1,16 @@
 """
-Vercel serverless entry — temporary stopgap until CronTech is up.
+Vercel serverless entry — stateless API for the builder console.
 
 Vercel's Python runtime discovers an ASGI `app` exported from a file
 under /api and routes ALL /api/* traffic to it. We re-export the
-FastAPI app from api.main with two lightweight adjustments:
-
-  1. The /ws/audio WebSocket router is NOT mounted — Vercel functions
-     don't support WebSockets. Browser → Deepgram already streams
-     directly so this only affects the standalone /orb.html page.
-  2. The static-file mount of frontend/dist is skipped because Vercel
-     serves the SPA from `outputDirectory`, not via FastAPI.
+FastAPI app from api.main with one adjustment: the static-file mount
+of frontend/dist is skipped because Vercel serves the SPA from
+`outputDirectory`, not via FastAPI.
 
 Heavyweight deps (boto3, supabase, celery, redis, sqlalchemy) are NOT
 installed in this deploy — see api/requirements.txt. The Bedrock
 failover is import-guarded; calling it when boto3 is missing returns
 a clean 502.
-
-When CronTech is live this file goes away — production traffic flips
-to the real backend host.
 """
 
 from __future__ import annotations
@@ -30,9 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from core.config import get_settings
 from api.gateway import router as gateway_router
 from api.command import router as command_router
-from api.refine_dictation import router as dictation_router
 from api.refine import router as refine_router
-from api.dictation_polish import router as polish_router
 from api.infra import router as infra_router
 from api.voice_config import router as voice_router
 from api.health_detail import router as health_detail_router
@@ -46,9 +37,9 @@ logging.basicConfig(
 )
 
 app = FastAPI(
-    title="HoldenMercer.com — Sovereign AI (Vercel stopgap)",
-    description="Stateless endpoints only. WebSocket + Batch live elsewhere.",
-    version="0.2.0-vercel",
+    title="HoldenMercer.com — Builder Console API",
+    description="Stateless endpoints for the AI website builder console.",
+    version="0.3.0-vercel",
 )
 
 _origins = [o.strip() for o in _settings.allowed_origins.split(",") if o.strip()]
@@ -69,9 +60,7 @@ app.add_middleware(
 
 app.include_router(gateway_router)
 app.include_router(command_router)
-app.include_router(dictation_router)
 app.include_router(refine_router)
-app.include_router(polish_router)
 app.include_router(infra_router)
 app.include_router(voice_router)
 app.include_router(health_detail_router)
@@ -80,10 +69,10 @@ app.include_router(cmd_router)
 
 _HEALTH_BODY = {
     "ok":          True,
-    "deploy":      "vercel-stopgap",
+    "deploy":      "vercel",
     "websocket":   False,
     "bedrock":     False,
-    "note":        "Stateless endpoints only. Bedrock + WS land on CronTech.",
+    "note":        "Stateless endpoints. Bedrock + heavy memory land on CronTech.",
     "anthropic":   {"ok": True, "latency_ms": None, "detail": "skipped on Vercel"},
 }
 

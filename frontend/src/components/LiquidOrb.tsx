@@ -1,27 +1,32 @@
 /**
- * LiquidOrb — GPU-rendered voice-reactive orb.
+ * LiquidOrb — GPU-rendered status orb.
  *
- * Mounts a WebGL canvas. When a MediaStream is provided (mic open),
- * an AudioAnalyser feeds real-time RMS intensity to u_intensity.
- * The canvas is transparent so it composites over any background.
+ * Mounts a WebGL canvas. Caller passes a status string and optional intensity
+ * (0–1) which drives the shader's halo and pulse. Used as a build/agent
+ * activity indicator throughout the dashboard.
  */
 
 import { useEffect, useRef } from 'react'
-import { OrbRenderer, OrbAudioAnalyser } from '../renderer'
-import type { VoiceStatus } from '../services/SovereignVoice'
+import { OrbRenderer } from '../renderer'
+
+export type OrbStatus = 'idle' | 'active' | 'busy'
 
 interface LiquidOrbProps {
-  stream:  MediaStream | null
-  status:  VoiceStatus
-  size?:   number
+  status:    OrbStatus
+  intensity?: number   // 0–1, optional driver. Defaults to 0 idle / 0.6 active / 1 busy.
+  size?:     number
 }
 
-export function LiquidOrb({ stream, status, size = 220 }: LiquidOrbProps) {
-  const canvasRef  = useRef<HTMLCanvasElement>(null)
-  const rendererRef = useRef<OrbRenderer | null>(null)
-  const analyserRef = useRef<OrbAudioAnalyser | null>(null)
+const DEFAULT_INTENSITY: Record<OrbStatus, number> = {
+  idle:   0,
+  active: 0.6,
+  busy:   1,
+}
 
-  // Init renderer once on mount
+export function LiquidOrb({ status, intensity, size = 220 }: LiquidOrbProps) {
+  const canvasRef   = useRef<HTMLCanvasElement>(null)
+  const rendererRef = useRef<OrbRenderer | null>(null)
+
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -29,34 +34,23 @@ export function LiquidOrb({ stream, status, size = 220 }: LiquidOrbProps) {
       const r = new OrbRenderer(canvas)
       r.resize(size, size)
       r.start()
-      rendererRef.current  = r
-      analyserRef.current  = new OrbAudioAnalyser(r)
+      rendererRef.current = r
     } catch (err) {
       console.warn('LiquidOrb: WebGL init failed', err)
     }
-    return () => {
-      rendererRef.current?.stop()
-      analyserRef.current?.disconnect()
-    }
+    return () => { rendererRef.current?.stop() }
   }, []) // eslint-disable-line
 
-  // Resize when size prop changes
   useEffect(() => {
     rendererRef.current?.resize(size, size)
   }, [size])
 
-  // Connect / disconnect audio analyser when stream changes
   useEffect(() => {
-    const analyser = analyserRef.current
-    if (!analyser) return
-    if (stream) {
-      analyser.connect(stream)
-    } else {
-      analyser.disconnect()
-    }
-  }, [stream])
+    const value = intensity ?? DEFAULT_INTENSITY[status]
+    rendererRef.current?.setIntensity(value)
+  }, [status, intensity])
 
-  const isActive = status === 'listening' || status === 'speech_final'
+  const isActive = status !== 'idle'
 
   return (
     <canvas
@@ -66,7 +60,7 @@ export function LiquidOrb({ stream, status, size = 220 }: LiquidOrbProps) {
       style={{
         display:      'block',
         borderRadius: '50%',
-        opacity:      status === 'idle' ? 0.35 : 1,
+        opacity:      status === 'idle' ? 0.45 : 1,
         transition:   'opacity 600ms ease, transform 300ms ease',
         transform:    isActive ? 'scale(1.05)' : 'scale(1)',
         filter:       isActive
