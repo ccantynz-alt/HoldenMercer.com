@@ -8,8 +8,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
-
-const API_KEY = import.meta.env.VITE_SOVEREIGN_API_KEY as string | undefined
+import { authFetch } from '../stores/auth'
 
 interface ProviderHealth {
   ok: boolean
@@ -80,10 +79,8 @@ export function SystemHealth() {
   const [error, setError]     = useState(false)
 
   const poll = useCallback(async () => {
-    const headers: Record<string, string> = {}
-    if (API_KEY) headers['X-Sovereign-Key'] = API_KEY
     try {
-      const res = await fetch('/api/health/system', { headers })
+      const res = await authFetch('/api/health/system')
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       setData(await res.json())
       setError(false)

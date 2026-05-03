@@ -1,0 +1,101 @@
+/**
+ * Chat store — per-project message history.
+ *
+ * Persisted to localStorage so a refresh doesn't lose your conversation.
+ * Each project has an independent thread. PR C will sync these to the
+ * project's GitHub repo (the repo IS the memory) so they survive devices.
+ */
+
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+
+export type ChatRole = 'user' | 'assistant' | 'system'
+
+/** Inline tool-call record so we can render it next to the message that triggered it. */
+export interface ToolCall {
+  id:         string
+  tool:       string
+  input:      Record<string, unknown>
+  status:     'running' | 'ok' | 'error'
+  preview?:   string         // truncated output for display
+  errorMsg?:  string
+}
+
+export interface ChatMessage {
+  id:        string
+  role:      ChatRole
+  text:      string                // markdown-friendly text body
+  toolCalls: ToolCall[]            // tool calls made *during* this assistant turn
+  createdAt: number
+  /** The assistant message is still streaming when this is true. */
+  streaming?: boolean
+  /** Set once the turn finishes, e.g. 'end_turn' | 'tool_use' | 'max_tokens'. */
+  stopReason?: string
+}
+
+interface ChatState {
+  /** projectId → messages */
+  threads: Record<string, ChatMessage[]>
+  appendMessage:    (projectId: string, message: ChatMessage) => void
+  patchMessage:     (projectId: string, id: string, patch: Partial<ChatMessage>) => void
+  appendToolCall:   (projectId: string, messageId: string, call: ToolCall) => void
+  patchToolCall:    (projectId: string, messageId: string, callId: string, patch: Partial<ToolCall>) => void
+  clearThread:      (projectId: string) => void
+}
+
+function newId(): string {
+  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
+}
+
+export const useChat = create<ChatState>()(
+  persist(
+    (set) => ({
+      threads: {},
+
+      appendMessage: (projectId, message) => set((s) => ({
+        threads: {
+          ...s.threads,
+          [projectId]: [...(s.threads[projectId] ?? []), message],
+        },
+      })),
+
+      patchMessage: (projectId, id, patch) => set((s) => ({
+        threads: {
+          ...s.threads,
+          [projectId]: (s.threads[projectId] ?? []).map((m) =>
+            m.id === id ? { ...m, ...patch } : m
+          ),
+        },
+      })),
+
+      appendToolCall: (projectId, messageId, call) => set((s) => ({
+        threads: {
+          ...s.threads,
+          [projectId]: (s.threads[projectId] ?? []).map((m) =>
+            m.id === messageId ? { ...m, toolCalls: [...m.toolCalls, call] } : m
+          ),
+        },
+      })),
+
+      patchToolCall: (projectId, messageId, callId, patch) => set((s) => ({
+        threads: {
+          ...s.threads,
+          [projectId]: (s.threads[projectId] ?? []).map((m) =>
+            m.id === messageId
+              ? { ...m, toolCalls: m.toolCalls.map((c) => c.id === callId ? { ...c, ...patch } : c) }
+              : m
+          ),
+        },
+      })),
+
+      clearThread: (projectId) => set((s) => {
+        const next = { ...s.threads }
+        delete next[projectId]
+        return { threads: next }
+      }),
+    }),
+    { name: 'holdenmercer:chat:v1' }
+  )
+)
+
+export { newId as newChatId }

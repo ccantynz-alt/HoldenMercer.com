@@ -21,10 +21,16 @@ class Settings(BaseSettings):
     environment: str = "development"
 
     # Security
-    sovereign_api_key: str = ""        # legacy name — still works
-    sovereign_secret_key: str = ""     # preferred name (same purpose, takes precedence)
+    sovereign_api_key: str = ""        # legacy shared-token (still accepted for curl/tools)
+    sovereign_secret_key: str = ""     # preferred name (takes precedence)
     allowed_origins: str = "http://localhost:5173,http://localhost:8000"
     development_mode: bool = False
+
+    # Single-user login (email + password gate for the dashboard)
+    admin_email:        str = ""
+    admin_password:     str = ""        # plaintext compared via secrets.compare_digest
+    session_secret:     str = ""        # HMAC key for signing session tokens
+    session_ttl_hours:  int = 168       # 7 days
 
     # GlueCron — GitHub-based native memory
     gluecron_github_token: str = ""   # PAT with repo:read scope

@@ -1,12 +1,13 @@
 /**
  * SettingsPanel — slide-over drawer for user-level config.
  *
- * BYOK Anthropic key, autonomy default, default model. Values live in
- * localStorage via the settings store. PR B will pass the key through to
- * the backend on every Console request (never stored server-side).
+ * Anthropic key (BYOK), GitHub PAT (for read_github_file / list_github_repos),
+ * default autonomy, default model, sign out. Values live in localStorage via
+ * the settings store.
  */
 
 import { useSettings, type AutonomyMode } from '../stores/settings'
+import { useAuth } from '../stores/auth'
 
 interface Props {
   open:    boolean
@@ -20,24 +21,32 @@ const AUTONOMY_OPTIONS: { value: AutonomyMode; label: string; help: string }[] =
 ]
 
 const MODEL_OPTIONS = [
-  { value: 'claude-opus-4-7',          label: 'Opus 4.7 — most capable' },
-  { value: 'claude-sonnet-4-6',        label: 'Sonnet 4.6 — balanced' },
+  { value: 'claude-opus-4-7',           label: 'Opus 4.7 — most capable' },
+  { value: 'claude-sonnet-4-6',         label: 'Sonnet 4.6 — balanced' },
   { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5 — fast / cheap' },
 ]
 
+function mask(value: string, prefix = 8, suffix = 4): string {
+  if (!value) return ''
+  if (value.length <= prefix + suffix) return value
+  return `${value.slice(0, prefix)}…${value.slice(-suffix)}`
+}
+
 export function SettingsPanel({ open, onClose }: Props) {
   const anthropicKey  = useSettings((s) => s.anthropicKey)
+  const githubToken   = useSettings((s) => s.githubToken)
+  const githubOrg     = useSettings((s) => s.githubOrg)
   const autonomy      = useSettings((s) => s.autonomy)
   const defaultModel  = useSettings((s) => s.defaultModel)
-  const setKey        = useSettings((s) => s.setAnthropicKey)
+  const setAnthropic  = useSettings((s) => s.setAnthropicKey)
+  const setGhToken    = useSettings((s) => s.setGithubToken)
+  const setGhOrg      = useSettings((s) => s.setGithubOrg)
   const setAutonomy   = useSettings((s) => s.setAutonomy)
   const setModel      = useSettings((s) => s.setDefaultModel)
+  const email         = useAuth((s) => s.email)
+  const logout        = useAuth((s) => s.logout)
 
   if (!open) return null
-
-  const masked = anthropicKey
-    ? `${anthropicKey.slice(0, 8)}…${anthropicKey.slice(-4)}`
-    : ''
 
   return (
     <div className="hm-drawer-backdrop" onClick={onClose}>
@@ -51,28 +60,59 @@ export function SettingsPanel({ open, onClose }: Props) {
           <h3 className="hm-drawer-section-title">Anthropic API key</h3>
           <p className="hm-drawer-help">
             Your <code>sk-ant-…</code> key. Stored in this browser only — sent
-            to the backend on each request, never persisted server-side.
+            to the backend on each Console request, never persisted server-side.
           </p>
           <input
             className="hm-input"
             type="password"
             value={anthropicKey}
-            onChange={(e) => setKey(e.target.value)}
+            onChange={(e) => setAnthropic(e.target.value)}
             placeholder="sk-ant-…"
             autoComplete="off"
             spellCheck={false}
           />
-          {masked && (
-            <p className="hm-drawer-confirm">
-              Saved: <code>{masked}</code>
-            </p>
+          {anthropicKey && (
+            <p className="hm-drawer-confirm">Saved: <code>{mask(anthropicKey)}</code></p>
           )}
+        </section>
+
+        <section className="hm-drawer-section">
+          <h3 className="hm-drawer-section-title">GitHub (GlueCron)</h3>
+          <p className="hm-drawer-help">
+            A personal access token with <code>repo</code> scope. Lets the Console
+            read files from any of your repositories. Get one at{' '}
+            <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">
+              github.com/settings/tokens
+            </a>.
+          </p>
+          <input
+            className="hm-input"
+            type="password"
+            value={githubToken}
+            onChange={(e) => setGhToken(e.target.value)}
+            placeholder="github_pat_…"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          {githubToken && (
+            <p className="hm-drawer-confirm">Saved: <code>{mask(githubToken)}</code></p>
+          )}
+          <input
+            className="hm-input"
+            type="text"
+            value={githubOrg}
+            onChange={(e) => setGhOrg(e.target.value)}
+            placeholder="GitHub username or org (e.g. ccantynz-alt)"
+            autoComplete="off"
+            spellCheck={false}
+            style={{ marginTop: 8 }}
+          />
         </section>
 
         <section className="hm-drawer-section">
           <h3 className="hm-drawer-section-title">Default autonomy</h3>
           <p className="hm-drawer-help">
-            How aggressive the Console runs. Per-project override coming next.
+            How aggressive the Console runs. Per-project override coming in PR C.
           </p>
           <div className="hm-radio-group">
             {AUTONOMY_OPTIONS.map((opt) => (
@@ -104,6 +144,19 @@ export function SettingsPanel({ open, onClose }: Props) {
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>
+        </section>
+
+        <section className="hm-drawer-section">
+          <h3 className="hm-drawer-section-title">Account</h3>
+          <p className="hm-drawer-help">
+            Signed in as <code>{email ?? 'unknown'}</code>.
+          </p>
+          <button
+            className="hm-btn-ghost"
+            onClick={() => { logout(); onClose() }}
+          >
+            Sign out
+          </button>
         </section>
       </div>
     </div>

@@ -16,8 +16,10 @@ export interface Project {
   id:           string
   name:         string
   description:  string
-  /** Optional GitHub repo (org/name) once linked. PR B writes this. */
+  /** Optional GitHub repo in 'owner/name' form, once linked. */
   repo:         string | null
+  /** Default branch to commit to. Inherited from the repo, or 'main'. */
+  branch:       string | null
   status:       ProjectStatus
   createdAt:    number
   lastOpenedAt: number
@@ -74,6 +76,7 @@ export const useProjects = create<ProjectsState>()(
           name:         name.trim() || 'Untitled',
           description:  description.trim(),
           repo:         null,
+          branch:       null,
           status:       'idle',
           createdAt:    now,
           lastOpenedAt: now,
