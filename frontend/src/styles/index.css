@@ -2949,3 +2949,135 @@ body {
   background: var(--accent-b);
   color: #fff;
 }
+
+/* ── Gate tab ───────────────────────────────────────────────────────────── */
+
+.hm-gate {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.hm-gate-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.hm-gate-title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hm-gate-help {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-top: 4px;
+  max-width: 720px;
+  line-height: 1.5;
+}
+
+.hm-gate-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hm-gate-empty {
+  padding: 20px;
+  border: 1px dashed var(--border-bright);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.hm-gate-empty code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-elevated);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.hm-gate-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hm-gate-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: var(--bg-base);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hm-gate-row.is-ok   { border-left: 3px solid #10a37f; }
+.hm-gate-row.is-fail { border-left: 3px solid var(--error); background: var(--error-soft); }
+
+.hm-gate-row-main {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.hm-gate-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.hm-gate-icon {
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+  flex: 0 0 auto;
+}
+
+.hm-gate-row-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hm-gate-row-title {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.hm-gate-row-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+}
+.hm-gate-row-sub code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.hm-gate-logs {
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  max-height: 360px;
+  overflow: auto;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}

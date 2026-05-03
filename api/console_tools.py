@@ -190,7 +190,15 @@ WRITE_TOOL_NAMES: set[str] = {
     "write_github_file",
     "delete_github_file",
     "create_github_branch",
+    "setup_gate_workflow",   # writes a workflow file
+    "run_gate",              # mutates the actions queue
 }
+
+
+def _all_tool_schemas() -> dict[str, dict]:
+    """Combined view of read/write tools + gate tools, for backwards compat."""
+    from api.gate_tools import GATE_TOOL_SCHEMAS
+    return {**TOOL_SCHEMAS, **GATE_TOOL_SCHEMAS}
 
 
 # ── Dispatcher ──────────────────────────────────────────────────────────────
@@ -202,6 +210,11 @@ async def run_tool(
     github_org: str,
 ) -> str:
     """Run a tool by name. Returns plain text Claude can consume."""
+    # Gate tools live in their own module to keep this file from sprawling.
+    from api.gate_tools import GATE_TOOL_NAMES, run_gate_tool
+    if name in GATE_TOOL_NAMES:
+        return await run_gate_tool(name, tool_input, github_token)
+
     if name == "web_fetch":
         return await _web_fetch(tool_input.get("url", ""))
     if name == "list_github_dir":

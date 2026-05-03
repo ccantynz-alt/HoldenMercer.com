@@ -21,9 +21,18 @@ from core.security import require_api_key
 from api.console_tools import (
     _fetch_github_dir,
     _fetch_github_repos,
+    _gh_headers,
+    GITHUB_API,
     _read_github_file,
     _write_github_file,
 )
+from api.gate_tools import (
+    _check_gate,
+    _read_gate_logs,
+    _run_gate,
+    _setup_gate_workflow,
+)
+from api.gate_workflow import WORKFLOW_FILENAME
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/repo", tags=["repo"])
@@ -140,3 +149,121 @@ async def list_repos(req: ListReposRequest):
             "html_url":   r.get("html_url"),
         })
     return {"repos": out}
+
+
+# ── Gate (GitHub Actions) ───────────────────────────────────────────────────
+
+class GateSetupRequest(BaseModel):
+    repo:         str
+    branch:       str | None = None
+    github_token: str = ""
+
+
+class GateRunRequest(BaseModel):
+    repo:         str
+    branch:       str | None = None
+    github_token: str = ""
+
+
+class GateStatusRequest(BaseModel):
+    repo:         str
+    run_id:       int | str
+    github_token: str = ""
+
+
+class GateLogsRequest(BaseModel):
+    repo:         str
+    run_id:       int | str
+    github_token: str = ""
+
+
+class GateListRequest(BaseModel):
+    repo:         str
+    github_token: str = ""
+    branch:       str | None = None
+
+
+@router.post("/gate/setup", dependencies=[Depends(require_api_key)])
+async def gate_setup(req: GateSetupRequest):
+    token = _resolve_token(req.github_token)
+    try:
+        result = await _setup_gate_workflow(req.repo, req.branch, token)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return {"result": result}
+
+
+@router.post("/gate/run", dependencies=[Depends(require_api_key)])
+async def gate_run(req: GateRunRequest):
+    """Manually trigger a gate run from the Gate tab."""
+    token = _resolve_token(req.github_token)
+    try:
+        result = await _run_gate(req.repo, req.branch, token)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return {"result": result}
+
+
+@router.post("/gate/status", dependencies=[Depends(require_api_key)])
+async def gate_status(req: GateStatusRequest):
+    token = _resolve_token(req.github_token)
+    try:
+        result = await _check_gate(req.repo, req.run_id, token)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return {"result": result}
+
+
+@router.post("/gate/logs", dependencies=[Depends(require_api_key)])
+async def gate_logs(req: GateLogsRequest):
+    token = _resolve_token(req.github_token)
+    try:
+        logs = await _read_gate_logs(req.repo, req.run_id, token)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return {"logs": logs}
+
+
+@router.post("/gate/runs", dependencies=[Depends(require_api_key)])
+async def gate_runs(req: GateListRequest):
+    """
+    List the most recent gate runs as structured JSON for the Gate tab UI.
+    Limited to the last 25 to keep payload sane.
+    """
+    import httpx
+
+    token = _resolve_token(req.github_token)
+    if "/" not in req.repo:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="repo must be 'owner/name'.")
+    if not token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No GitHub token configured.")
+
+    headers = _gh_headers(token)
+    params = {"per_page": 25}
+    if req.branch:
+        params["branch"] = req.branch
+    url = f"{GITHUB_API}/repos/{req.repo}/actions/workflows/{WORKFLOW_FILENAME}/runs"
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.get(url, headers=headers, params=params)
+        if resp.status_code == 404:
+            return {"runs": [], "workflow_installed": False}
+        resp.raise_for_status()
+        runs = resp.json().get("workflow_runs", [])
+
+    out = [
+        {
+            "id":         r.get("id"),
+            "status":     r.get("status"),
+            "conclusion": r.get("conclusion"),
+            "branch":     r.get("head_branch"),
+            "head_sha":   r.get("head_sha"),
+            "created_at": r.get("created_at"),
+            "updated_at": r.get("updated_at"),
+            "html_url":   r.get("html_url"),
+            "event":      r.get("event"),
+            "actor":      (r.get("triggering_actor") or {}).get("login"),
+        }
+        for r in runs
+    ]
+    return {"runs": out, "workflow_installed": True}

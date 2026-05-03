@@ -30,6 +30,10 @@ const ALL_TOOLS = [
   'write_github_file',
   'delete_github_file',
   'create_github_branch',
+  'setup_gate_workflow',
+  'run_gate',
+  'check_gate',
+  'read_gate_logs',
 ] as const
 
 export function Console({ projectId }: Props) {
@@ -40,6 +44,7 @@ export function Console({ projectId }: Props) {
   const appendTool    = useChat((s) => s.appendToolCall)
   const patchTool     = useChat((s) => s.patchToolCall)
   const clearThread   = useChat((s) => s.clearThread)
+  const consumePending = useChat((s) => s.consumePendingInput)
 
   const settings = useSettings()
   const token    = useAuth((s) => s.token)
@@ -55,6 +60,14 @@ export function Console({ projectId }: Props) {
     if (!el) return
     el.scrollTop = el.scrollHeight
   }, [messages])
+
+  // Pick up any pending input the Gate tab pushed into the composer.
+  useEffect(() => {
+    const pending = consumePending(projectId)
+    if (pending) setInput(pending)
+    // Only on project change, not on every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId])
 
   const ready = useMemo(() => Boolean(settings.anthropicKey && project), [settings.anthropicKey, project])
 
@@ -446,7 +459,12 @@ function buildSystemPrompt({
     `  - write_github_file(repo, path, content, commit_message): create or overwrite a file.`,
     `  - delete_github_file(repo, path, commit_message): delete a file.`,
     `  - create_github_branch(repo, branch, from_ref?): create a branch.`,
+    `  - setup_gate_workflow(repo): install the lint/typecheck/tests workflow.`,
+    `  - run_gate(repo, branch?): trigger the gate; waits up to ~45s for the result.`,
+    `  - check_gate(repo, run_id): poll a specific run.`,
+    `  - read_gate_logs(repo, run_id): tail the failure logs of a run.`,
     `\nAlways write the FULL file content when using write_github_file — partial edits aren't supported.`,
+    `\nWhen you commit changes that touch real code, run the gate afterwards (run_gate) so the user has signal that nothing broke. If the gate hasn't been installed yet, call setup_gate_workflow first. On failure, read_gate_logs, then propose / commit a fix and run the gate again — this is the self-repair loop.`,
     `\nBe concise. Skip preamble. Plans should give numbered steps with file paths and the actual change, not abstract advice.`,
   )
 
@@ -465,6 +483,10 @@ function summariseInput(tool: string, input: Record<string, unknown>): string {
   if (tool === 'write_github_file')   return `${input.repo ?? ''}/${input.path ?? ''}  ←  ${input.commit_message ?? ''}`
   if (tool === 'delete_github_file')  return `${input.repo ?? ''}/${input.path ?? ''}  (delete)`
   if (tool === 'create_github_branch') return `${input.repo ?? ''}  branch=${input.branch ?? ''} from=${input.from_ref ?? 'default'}`
+  if (tool === 'setup_gate_workflow') return `install gate workflow in ${input.repo ?? ''}`
+  if (tool === 'run_gate')            return `${input.repo ?? ''}@${input.branch ?? 'default'}`
+  if (tool === 'check_gate')          return `${input.repo ?? ''} run ${input.run_id ?? ''}`
+  if (tool === 'read_gate_logs')      return `${input.repo ?? ''} run ${input.run_id ?? ''}`
   try { return JSON.stringify(input).slice(0, 80) } catch { return '' }
 }
 
@@ -489,6 +511,12 @@ function githubUrlForCall(call: ToolCall, repo: string | null, branch: string | 
     return `https://github.com/${repoFromInput}`
   }
   if (call.tool === 'web_fetch') return (call.input.url as string | undefined) ?? null
+  if (call.tool === 'setup_gate_workflow') {
+    return `https://github.com/${repoFromInput}/blob/${ref}/.github/workflows/holden-mercer-gate.yml`
+  }
+  if (call.tool === 'run_gate' || call.tool === 'check_gate' || call.tool === 'read_gate_logs') {
+    return `https://github.com/${repoFromInput}/actions/workflows/holden-mercer-gate.yml`
+  }
   return null
 }
 

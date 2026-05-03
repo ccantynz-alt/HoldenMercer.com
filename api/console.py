@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 
 from core.config import get_settings
 from core.security import require_api_key
-from api.console_tools import TOOL_SCHEMAS, WRITE_TOOL_NAMES, run_tool
+from api.console_tools import TOOL_SCHEMAS, WRITE_TOOL_NAMES, run_tool, _all_tool_schemas
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/console", tags=["console"])
@@ -56,7 +56,7 @@ class ConsoleRequest(BaseModel):
     anthropic_key: str  = Field(default="", description="BYOK; never stored server-side")
     github_token:  str  = ""
     model:         str  = DEFAULT_MODEL
-    tools_enabled: list[str] = Field(default_factory=lambda: list(TOOL_SCHEMAS.keys()))
+    tools_enabled: list[str] = Field(default_factory=lambda: list(_all_tool_schemas().keys()))
     autonomy:      Literal["manual", "smart", "auto"] = "smart"
     max_tokens:    int  = DEFAULT_MAX_TOKENS
 
@@ -75,7 +75,8 @@ def _build_tool_specs(enabled: list[str], autonomy: str) -> list[dict]:
     available = list(enabled)
     if autonomy == "manual":
         available = [t for t in available if t not in WRITE_TOOL_NAMES]
-    return [spec for name, spec in TOOL_SCHEMAS.items() if name in available]
+    schemas = _all_tool_schemas()
+    return [spec for name, spec in schemas.items() if name in available]
 
 
 @router.post("/stream", dependencies=[Depends(require_api_key)])
