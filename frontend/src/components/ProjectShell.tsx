@@ -1,24 +1,23 @@
 /**
  * ProjectShell — main pane when a project is selected. Holds the per-project
- * tab strip and routes to the active tab.
- *
- * PR A only ships Brief as a real surface. Console / Memory / Deploy / Swarm
- * are placeholders explaining what's landing next so the shape is visible.
+ * tab strip + repo-link control and routes to the active tab.
  */
 
 import { useState } from 'react'
 import { useProjects } from '../stores/projects'
 import { Brief } from './Brief'
 import { Console } from './Console'
+import { Memory } from './Memory'
 import { TaskSwarm } from './TaskSwarm'
+import { LinkRepoModal } from './LinkRepoModal'
 
 type TabId = 'brief' | 'console' | 'swarm' | 'memory' | 'deploy'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'brief',   label: 'Brief'   },
   { id: 'console', label: 'Console' },
-  { id: 'swarm',   label: 'Swarm'   },
   { id: 'memory',  label: 'Memory'  },
+  { id: 'swarm',   label: 'Swarm'   },
   { id: 'deploy',  label: 'Deploy'  },
 ]
 
@@ -26,7 +25,8 @@ export function ProjectShell() {
   const project = useProjects((s) =>
     s.projects.find((p) => p.id === s.activeProjectId) ?? null
   )
-  const [tab, setTab] = useState<TabId>('brief')
+  const [tab, setTab]               = useState<TabId>('brief')
+  const [linkOpen, setLinkOpen]     = useState(false)
 
   if (!project) {
     return (
@@ -47,6 +47,15 @@ export function ProjectShell() {
           {project.description && (
             <p className="hm-project-tagline">{project.description}</p>
           )}
+          <button
+            className="hm-repo-link"
+            onClick={() => setLinkOpen(true)}
+            title={project.repo ? 'Repo linked — click to change' : 'Link to a GitHub repo'}
+          >
+            {project.repo
+              ? <>📦 <code>{project.repo}</code> · <span className="hm-repo-branch">{project.branch || 'main'}</span></>
+              : <>+ Link a GitHub repo</>}
+          </button>
         </div>
         <span className={`hm-status-pill hm-status-${project.status}`}>
           {project.status}
@@ -66,11 +75,18 @@ export function ProjectShell() {
       </nav>
 
       <div className="hm-tab-body">
-        {tab === 'brief'   ? <Brief    projectId={project.id} />
+        {tab === 'brief'    ? <Brief    projectId={project.id} />
          : tab === 'console' ? <Console projectId={project.id} />
-         : tab === 'swarm' ? <TaskSwarm />
+         : tab === 'memory'  ? <Memory  projectId={project.id} />
+         : tab === 'swarm'   ? <TaskSwarm />
          : <Placeholder tab={tab} />}
       </div>
+
+      <LinkRepoModal
+        projectId={project.id}
+        open={linkOpen}
+        onClose={() => setLinkOpen(false)}
+      />
     </section>
   )
 }
@@ -79,17 +95,15 @@ function Placeholder({ tab }: { tab: TabId }) {
   const messages: Record<TabId, { title: string; body: string }> = {
     brief:   { title: '', body: '' },
     console: { title: '', body: '' },
+    memory:  { title: '', body: '' },
     swarm:   { title: '', body: '' },
-    memory:  {
-      title: 'Memory — landing in PR C.',
-      body:  'GlueCron timeline: every session summary, decision, and commit, indexed and searchable. The repo IS the memory — new sessions resume cold by reading it.',
-    },
     deploy:  {
-      title: 'Deploy — landing in PR C.',
+      title: 'Deploy — landing in PR D.',
       body:  'CronTech deploy controls + preview URL. The Programmatic Gate (lint + typecheck + tests) runs here; failures auto-repair via the Shadow Architect loop.',
     },
   }
   const { title, body } = messages[tab]
+  if (!title) return null
   return (
     <div className="hm-placeholder">
       <h2 className="hm-placeholder-title">{title}</h2>

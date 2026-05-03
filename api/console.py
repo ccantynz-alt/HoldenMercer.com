@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 
 from core.config import get_settings
 from core.security import require_api_key
-from api.console_tools import TOOL_SCHEMAS, run_tool
+from api.console_tools import TOOL_SCHEMAS, WRITE_TOOL_NAMES, run_tool
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/console", tags=["console"])
@@ -65,8 +65,17 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def _build_tool_specs(enabled: list[str]) -> list[dict]:
-    return [spec for name, spec in TOOL_SCHEMAS.items() if name in enabled]
+def _build_tool_specs(enabled: list[str], autonomy: str) -> list[dict]:
+    """
+    Filter the tool specs by:
+      1. The frontend's `tools_enabled` allow-list (a subset of all known tools).
+      2. The autonomy mode — `manual` strips out anything that mutates state, so
+         in manual mode Claude can plan and read but never commits anything.
+    """
+    available = list(enabled)
+    if autonomy == "manual":
+        available = [t for t in available if t not in WRITE_TOOL_NAMES]
+    return [spec for name, spec in TOOL_SCHEMAS.items() if name in available]
 
 
 @router.post("/stream", dependencies=[Depends(require_api_key)])
@@ -85,7 +94,7 @@ async def console_stream(req: ConsoleRequest):
         client = anthropic.AsyncAnthropic(api_key=api_key, timeout=settings.request_timeout)
         # Convert pydantic messages to dicts that Anthropic accepts as-is.
         messages = [m.model_dump() for m in req.messages]
-        tools    = _build_tool_specs(req.tools_enabled)
+        tools    = _build_tool_specs(req.tools_enabled, req.autonomy)
 
         turns = 0
         try:

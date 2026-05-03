@@ -5,6 +5,10 @@
  * shows tool calls inline as they happen. Per-project history persists to
  * localStorage. Native textarea so OS dictation (iPad mic, Mac fn-fn,
  * Win+H) Just Works — no custom STT layer.
+ *
+ * When the project is linked to a repo, every completed turn also writes a
+ * session summary to .holdenmercer/sessions/<timestamp>.md so future Claude
+ * sessions can read what happened. The repo IS the memory.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -12,10 +16,21 @@ import { useChat, newChatId, type ChatMessage, type ToolCall } from '../stores/c
 import { useProjects } from '../stores/projects'
 import { useSettings } from '../stores/settings'
 import { useAuth } from '../stores/auth'
+import { writeFile } from '../lib/repo'
 
 interface Props {
   projectId: string
 }
+
+const ALL_TOOLS = [
+  'web_fetch',
+  'read_github_file',
+  'list_github_repos',
+  'list_github_dir',
+  'write_github_file',
+  'delete_github_file',
+  'create_github_branch',
+] as const
 
 export function Console({ projectId }: Props) {
   const project       = useProjects((s) => s.projects.find((p) => p.id === projectId))
@@ -32,19 +47,16 @@ export function Console({ projectId }: Props) {
   const [input,    setInput]    = useState('')
   const [streaming, setStreaming] = useState(false)
   const [error,    setError]    = useState<string | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
+  const abortRef  = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
-  // Auto-scroll to bottom on every message change (simple, works for now)
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
     el.scrollTop = el.scrollHeight
   }, [messages])
 
-  const ready = useMemo(() => {
-    return Boolean(settings.anthropicKey && project)
-  }, [settings.anthropicKey, project])
+  const ready = useMemo(() => Boolean(settings.anthropicKey && project), [settings.anthropicKey, project])
 
   if (!project) return null
 
@@ -62,7 +74,6 @@ export function Console({ projectId }: Props) {
     appendMessage(projectId, userMessage)
     setInput('')
 
-    // Pre-create the assistant message so deltas have somewhere to land
     const assistantId = newChatId()
     const assistantMessage: ChatMessage = {
       id:        assistantId,
@@ -75,13 +86,19 @@ export function Console({ projectId }: Props) {
     appendMessage(projectId, assistantMessage)
     setStreaming(true)
 
-    // Build the request payload
-    const systemPrompt = buildSystemPrompt(project.name, project.description)
-    const apiMessages  = [...messages, userMessage].map(toApiMessage)
+    const systemPrompt = buildSystemPrompt({
+      name:        project.name,
+      description: project.description,
+      repo:        project.repo,
+      branch:      project.branch,
+      autonomy:    settings.autonomy,
+    })
+    const apiMessages = [...messages, userMessage].map(toApiMessage)
 
     const ac = new AbortController()
     abortRef.current = ac
     let accumulatedText = ''
+    const collectedToolCalls: ToolCall[] = []
 
     try {
       const res = await fetch('/api/console/stream', {
@@ -97,7 +114,7 @@ export function Console({ projectId }: Props) {
           github_token:   settings.githubToken,
           model:          settings.defaultModel,
           autonomy:       settings.autonomy,
-          tools_enabled:  ['web_fetch', 'read_github_file', 'list_github_repos'],
+          tools_enabled:  ALL_TOOLS,
         }),
         signal: ac.signal,
       })
@@ -116,7 +133,6 @@ export function Console({ projectId }: Props) {
         if (done) break
         buffer += decoder.decode(value, { stream: true })
 
-        // Parse SSE events: blank-line separated, each event = "event: X\ndata: Y\n"
         let nlIndex
         while ((nlIndex = buffer.indexOf('\n\n')) !== -1) {
           const raw = buffer.slice(0, nlIndex)
@@ -135,16 +151,27 @@ export function Console({ projectId }: Props) {
               status: 'running',
             }
             appendTool(projectId, assistantId, tc)
+            collectedToolCalls.push(tc)
           } else if (event.event === 'tool_use_result') {
             patchTool(projectId, assistantId, event.data.id, {
               status:  'ok',
               preview: event.data.output ?? '',
             })
+            const existing = collectedToolCalls.find((c) => c.id === event.data.id)
+            if (existing) {
+              existing.status  = 'ok'
+              existing.preview = event.data.output ?? ''
+            }
           } else if (event.event === 'tool_use_error') {
             patchTool(projectId, assistantId, event.data.id, {
               status:   'error',
               errorMsg: event.data.error ?? 'unknown error',
             })
+            const existing = collectedToolCalls.find((c) => c.id === event.data.id)
+            if (existing) {
+              existing.status   = 'error'
+              existing.errorMsg = event.data.error ?? 'unknown error'
+            }
           } else if (event.event === 'turn_end') {
             patchMessage(projectId, assistantId, { stopReason: event.data.stop_reason })
           } else if (event.event === 'done') {
@@ -156,6 +183,28 @@ export function Console({ projectId }: Props) {
       }
 
       patchMessage(projectId, assistantId, { streaming: false })
+
+      // Write a session summary to the linked repo so future Claude sessions
+      // can read it. Best-effort — failure here shouldn't break the chat UX.
+      if (project.repo && (accumulatedText.trim() || collectedToolCalls.length > 0)) {
+        const filename = sessionFilename()
+        const body     = sessionMarkdown({
+          projectName:  project.name,
+          userText:     userMessage.text,
+          assistantText: accumulatedText,
+          toolCalls:    collectedToolCalls,
+          model:        settings.defaultModel,
+          autonomy:     settings.autonomy,
+        })
+        writeFile({
+          repo:           project.repo,
+          path:           `.holdenmercer/sessions/${filename}`,
+          content:        body,
+          commit_message: `chore(memory): session ${filename}`,
+        }).catch((err) => {
+          console.warn('Session summary write failed', err)
+        })
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (message !== 'AbortError' && !message.includes('aborted')) {
@@ -184,20 +233,20 @@ export function Console({ projectId }: Props) {
 
   return (
     <div className="hm-console">
-      {/* Conversation */}
       <div className="hm-console-thread" ref={scrollRef}>
         {messages.length === 0 ? (
           <ConsoleEmpty
             ready={ready}
             hasKey={Boolean(settings.anthropicKey)}
             hasGithub={Boolean(settings.githubToken)}
+            hasRepo={Boolean(project.repo)}
+            autonomy={settings.autonomy}
           />
         ) : (
-          messages.map((m) => <MessageRow key={m.id} message={m} />)
+          messages.map((m) => <MessageRow key={m.id} message={m} repo={project.repo} branch={project.branch} />)
         )}
       </div>
 
-      {/* Composer */}
       <div className="hm-console-composer">
         {error && <div className="hm-console-error">{error}</div>}
         <textarea
@@ -218,7 +267,9 @@ export function Console({ projectId }: Props) {
         />
         <div className="hm-console-actions">
           <span className="hm-console-hint">
-            {streaming ? 'Streaming…' : `Model: ${settings.defaultModel} · Autonomy: ${settings.autonomy}`}
+            {streaming
+              ? 'Streaming…'
+              : `${settings.defaultModel} · ${settings.autonomy}${project.repo ? ` · writes to ${project.repo}` : ' · no repo linked'}`}
           </span>
           <div style={{ display: 'flex', gap: 8 }}>
             {messages.length > 0 && (
@@ -248,7 +299,9 @@ export function Console({ projectId }: Props) {
   )
 }
 
-function MessageRow({ message }: { message: ChatMessage }) {
+function MessageRow({
+  message, repo, branch,
+}: { message: ChatMessage; repo: string | null; branch: string | null }) {
   return (
     <div className={`hm-msg hm-msg-${message.role}`}>
       <div className="hm-msg-role">{message.role === 'user' ? 'You' : 'Claude'}</div>
@@ -259,7 +312,9 @@ function MessageRow({ message }: { message: ChatMessage }) {
           <div className="hm-msg-text hm-msg-thinking">…thinking</div>
         ) : null}
 
-        {message.toolCalls.map((c) => <ToolCallRow key={c.id} call={c} />)}
+        {message.toolCalls.map((c) => (
+          <ToolCallRow key={c.id} call={c} repo={repo} branch={branch} />
+        ))}
 
         {message.streaming && (
           <span className="hm-msg-cursor" aria-hidden>▍</span>
@@ -269,14 +324,30 @@ function MessageRow({ message }: { message: ChatMessage }) {
   )
 }
 
-function ToolCallRow({ call }: { call: ToolCall }) {
+function ToolCallRow({
+  call, repo, branch,
+}: { call: ToolCall; repo: string | null; branch: string | null }) {
   const summary = summariseInput(call.tool, call.input)
+  const linkUrl = githubUrlForCall(call, repo, branch)
   return (
     <details className={`hm-tool hm-tool-${call.status}`} open={call.status === 'running'}>
       <summary>
-        <span className="hm-tool-icon">{call.status === 'running' ? '◌' : call.status === 'ok' ? '●' : '✕'}</span>
+        <span className="hm-tool-icon">
+          {call.status === 'running' ? '◌' : call.status === 'ok' ? '●' : '✕'}
+        </span>
         <span className="hm-tool-name">{call.tool}</span>
         <span className="hm-tool-summary">{summary}</span>
+        {linkUrl && (
+          <a
+            className="hm-tool-link"
+            href={linkUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            view ↗
+          </a>
+        )}
       </summary>
       {call.status === 'error' ? (
         <pre className="hm-tool-output hm-tool-error-output">{call.errorMsg}</pre>
@@ -287,9 +358,15 @@ function ToolCallRow({ call }: { call: ToolCall }) {
   )
 }
 
-function ConsoleEmpty(
-  { ready, hasKey, hasGithub }: { ready: boolean; hasKey: boolean; hasGithub: boolean }
-) {
+function ConsoleEmpty({
+  ready, hasKey, hasGithub, hasRepo, autonomy,
+}: {
+  ready: boolean
+  hasKey: boolean
+  hasGithub: boolean
+  hasRepo: boolean
+  autonomy: string
+}) {
   return (
     <div className="hm-console-empty">
       <h3 className="hm-console-empty-title">Start the conversation.</h3>
@@ -301,15 +378,20 @@ function ConsoleEmpty(
       )}
       {hasKey && !hasGithub && (
         <p className="hm-console-empty-body">
-          Tip: add a GitHub PAT in Settings so Claude can read files from your other
-          repos via the <code>read_github_file</code> tool.
+          Tip: add a GitHub PAT in Settings so Claude can read and write your repos.
+        </p>
+      )}
+      {hasGithub && !hasRepo && (
+        <p className="hm-console-empty-body">
+          This project isn't linked to a repo yet. Click <strong>+ Link a GitHub repo</strong>{' '}
+          above the tabs and Claude can commit changes directly.
         </p>
       )}
       {ready && (
         <p className="hm-console-empty-body">
-          Ask anything about <em>this</em> project — Claude reads the brief automatically.
-          Paste a URL and it'll fetch the page. Mention another repo and it can read files
-          from there.
+          {autonomy === 'manual'
+            ? 'Manual mode — Claude can read and plan but not write. Switch to Smart pause or Full auto in Settings to let it commit.'
+            : 'Ask Claude to build, fix, or change something. It can read any file in any of your repos and commit changes back when given a target.'}
         </p>
       )}
     </div>
@@ -318,30 +400,96 @@ function ConsoleEmpty(
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function buildSystemPrompt(name: string, description: string): string {
-  const parts = [
-    `You are the build agent for the project "${name}".`,
-    description.trim()
-      ? `\nProject brief:\n${description.trim()}`
-      : `\nThe project brief is empty. If you need clarity, ask the user to fill it in via the Brief tab.`,
-    '\nYou have read-only tools available: web_fetch (any URL), read_github_file (any GitHub repo), list_github_repos (the user\'s repos). Use them whenever they would help.',
-    '\nWriting tools (file edits, commits, deploys) are not yet wired in — propose changes as code blocks and the user will apply them. PR C will give you direct write access.',
-    '\nBe concise. Skip preamble. When asked to plan, give a numbered plan with file paths and the actual change, not abstract advice.',
+function buildSystemPrompt({
+  name, description, repo, branch, autonomy,
+}: {
+  name: string
+  description: string
+  repo: string | null
+  branch: string | null
+  autonomy: string
+}): string {
+  const parts: string[] = [
+    `You are the build agent for the project "${name}". You're running inside Holden Mercer — a console for power users to build with Claude.`,
   ]
+
+  if (description.trim()) {
+    parts.push(`\nProject brief:\n${description.trim()}`)
+  } else {
+    parts.push(`\nThe project brief is empty. Ask the user to fill it in via the Brief tab if you need clarity.`)
+  }
+
+  if (repo) {
+    parts.push(
+      `\nThis project is linked to GitHub repo \`${repo}\` (default branch: \`${branch || 'main'}\`). When the user asks you to make a change, use \`write_github_file\` to commit it directly. Read existing files first with \`read_github_file\` so you don't overwrite work.`
+    )
+  } else {
+    parts.push(
+      `\nThis project is NOT linked to a GitHub repo yet, so write tools won't have a target. If the user asks you to write code, propose it as fenced code blocks and suggest they link a repo.`
+    )
+  }
+
+  if (autonomy === 'manual') {
+    parts.push(`\nAutonomy: MANUAL — write tools are disabled. Plan and explain only. The user will apply changes themselves.`)
+  } else if (autonomy === 'smart') {
+    parts.push(`\nAutonomy: SMART PAUSE — you can write files and create branches. Pause to confirm with the user before destructive ops (deleting files, large refactors), and before architecture decisions where multiple valid approaches exist.`)
+  } else {
+    parts.push(`\nAutonomy: FULL AUTO — you have full write access. Make sensible default choices and keep going. The user will review the commits afterwards.`)
+  }
+
+  parts.push(
+    `\nTools available:`,
+    `  - web_fetch(url): fetch any public web page.`,
+    `  - read_github_file(repo, path): read any file from any repo.`,
+    `  - list_github_repos(search?): list the user's repos.`,
+    `  - list_github_dir(repo, path): list a directory in a repo.`,
+    `  - write_github_file(repo, path, content, commit_message): create or overwrite a file.`,
+    `  - delete_github_file(repo, path, commit_message): delete a file.`,
+    `  - create_github_branch(repo, branch, from_ref?): create a branch.`,
+    `\nAlways write the FULL file content when using write_github_file — partial edits aren't supported.`,
+    `\nBe concise. Skip preamble. Plans should give numbered steps with file paths and the actual change, not abstract advice.`,
+  )
+
   return parts.join('\n')
 }
 
-function toApiMessage(m: ChatMessage): { role: 'user' | 'assistant'; content: string | unknown[] } {
-  // The backend conversation history we send back is just the text. Tool-use blocks
-  // were already round-tripped server-side during the stream — we don't replay them.
+function toApiMessage(m: ChatMessage): { role: 'user' | 'assistant'; content: string } {
   return { role: m.role === 'system' ? 'user' : m.role, content: m.text }
 }
 
 function summariseInput(tool: string, input: Record<string, unknown>): string {
-  if (tool === 'web_fetch')        return String(input.url ?? '')
-  if (tool === 'read_github_file') return `${input.repo ?? ''}/${input.path ?? ''}${input.ref ? `@${input.ref}` : ''}`
-  if (tool === 'list_github_repos') return input.search ? `search="${input.search}"` : 'all repos'
+  if (tool === 'web_fetch')           return String(input.url ?? '')
+  if (tool === 'read_github_file')    return `${input.repo ?? ''}/${input.path ?? ''}${input.ref ? `@${input.ref}` : ''}`
+  if (tool === 'list_github_repos')   return input.search ? `search="${input.search}"` : 'all repos'
+  if (tool === 'list_github_dir')     return `${input.repo ?? ''}/${input.path ?? '(root)'}`
+  if (tool === 'write_github_file')   return `${input.repo ?? ''}/${input.path ?? ''}  ←  ${input.commit_message ?? ''}`
+  if (tool === 'delete_github_file')  return `${input.repo ?? ''}/${input.path ?? ''}  (delete)`
+  if (tool === 'create_github_branch') return `${input.repo ?? ''}  branch=${input.branch ?? ''} from=${input.from_ref ?? 'default'}`
   try { return JSON.stringify(input).slice(0, 80) } catch { return '' }
+}
+
+function githubUrlForCall(call: ToolCall, repo: string | null, branch: string | null): string | null {
+  const repoFromInput = (call.input.repo as string | undefined) || repo
+  if (!repoFromInput) return null
+  const ref = (call.input.branch as string | undefined) || (call.input.ref as string | undefined) || branch || 'HEAD'
+  if (call.tool === 'read_github_file' || call.tool === 'write_github_file' || call.tool === 'delete_github_file') {
+    const path = call.input.path as string | undefined
+    if (!path) return `https://github.com/${repoFromInput}`
+    return `https://github.com/${repoFromInput}/blob/${ref}/${path}`
+  }
+  if (call.tool === 'list_github_dir') {
+    const path = (call.input.path as string | undefined) || ''
+    return path
+      ? `https://github.com/${repoFromInput}/tree/${ref}/${path}`
+      : `https://github.com/${repoFromInput}`
+  }
+  if (call.tool === 'create_github_branch') {
+    const newBranch = call.input.branch as string | undefined
+    if (newBranch) return `https://github.com/${repoFromInput}/tree/${newBranch}`
+    return `https://github.com/${repoFromInput}`
+  }
+  if (call.tool === 'web_fetch') return (call.input.url as string | undefined) ?? null
+  return null
 }
 
 interface SseEvent { event: string; data: any }
@@ -359,4 +507,60 @@ function parseSseEvent(raw: string): SseEvent | null {
   } catch {
     return null
   }
+}
+
+// ── Session summaries ─────────────────────────────────────────────────────
+
+function sessionFilename(): string {
+  const d = new Date()
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return [
+    d.getUTCFullYear(),
+    pad(d.getUTCMonth() + 1),
+    pad(d.getUTCDate()),
+  ].join('-') + '-' + [
+    pad(d.getUTCHours()),
+    pad(d.getUTCMinutes()),
+    pad(d.getUTCSeconds()),
+  ].join('') + '.md'
+}
+
+function sessionMarkdown({
+  projectName, userText, assistantText, toolCalls, model, autonomy,
+}: {
+  projectName:   string
+  userText:      string
+  assistantText: string
+  toolCalls:     ToolCall[]
+  model:         string
+  autonomy:      string
+}): string {
+  const lines: string[] = []
+  lines.push(`# Session — ${projectName}`)
+  lines.push('')
+  lines.push(`- **When**: ${new Date().toISOString()}`)
+  lines.push(`- **Model**: ${model}`)
+  lines.push(`- **Autonomy**: ${autonomy}`)
+  lines.push('')
+  lines.push('## User')
+  lines.push('')
+  lines.push(userText)
+  lines.push('')
+  lines.push('## Claude')
+  lines.push('')
+  lines.push(assistantText.trim() || '_(no text — see tool calls below)_')
+  if (toolCalls.length > 0) {
+    lines.push('')
+    lines.push('## Tool calls')
+    lines.push('')
+    for (const c of toolCalls) {
+      const status = c.status === 'ok' ? '✅' : c.status === 'error' ? '❌' : '◌'
+      lines.push(`- ${status} \`${c.tool}\` — \`${JSON.stringify(c.input)}\``)
+      if (c.status === 'error' && c.errorMsg) {
+        lines.push(`  - error: ${c.errorMsg}`)
+      }
+    }
+  }
+  lines.push('')
+  return lines.join('\n')
 }
