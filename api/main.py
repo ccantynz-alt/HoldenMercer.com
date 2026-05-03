@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from core.config import get_settings
+from api.auth import router as auth_router
 from api.gateway import router as gateway_router
 from api.command import router as command_router
 from api.refine import router as refine_router
@@ -14,6 +15,7 @@ from api.infra import router as infra_router
 from api.voice_config import router as voice_router
 from api.health_detail import router as health_detail_router
 from api.router import router as cmd_router
+from api.console import router as console_router
 
 _settings = get_settings()
 
@@ -38,6 +40,8 @@ app.add_middleware(
 )
 
 # API routes first — must be registered before the SPA catch-all
+app.include_router(auth_router)
+app.include_router(console_router)
 app.include_router(gateway_router)
 app.include_router(command_router)
 app.include_router(refine_router)

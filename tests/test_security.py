@@ -102,7 +102,7 @@ def test_wrong_key_rejected():
         )
 
     assert resp.status_code == 401
-    assert "Invalid or missing" in resp.json()["detail"]
+    assert "authentication required" in resp.json()["detail"].lower()
 
 
 # ── 4. Key set + header absent → 401 ────────────────────────────────────────

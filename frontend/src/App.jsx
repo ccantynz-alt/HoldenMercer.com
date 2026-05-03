@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import { StatusBar } from './components/StatusBar'
 import { SystemHealth } from './components/SystemHealth'
 import { Landing } from './components/Landing'
+import { Login } from './components/Login'
 import { ProjectSidebar } from './components/ProjectSidebar'
 import { ProjectShell } from './components/ProjectShell'
 import { NewProjectModal } from './components/NewProjectModal'
 import { SettingsPanel } from './components/SettingsPanel'
+import { useAuth } from './stores/auth'
 
 const BoltIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -23,6 +25,9 @@ const GearIcon = () => (
 const ENTERED_KEY = 'holdenmercer:entered:v1'
 
 export default function App() {
+  const authStatus = useAuth((s) => s.status)
+  const bootstrap  = useAuth((s) => s.bootstrap)
+
   const [view, setView] = useState(() => {
     if (typeof window === 'undefined') return 'landing'
     if (window.location.hash === '#dashboard') return 'dashboard'
@@ -31,6 +36,9 @@ export default function App() {
   })
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [settingsOpen, setSettingsOpen]     = useState(false)
+
+  // Verify the persisted token against the backend on mount
+  useEffect(() => { bootstrap() }, [bootstrap])
 
   const enter = () => {
     try { localStorage.setItem(ENTERED_KEY, '1') } catch {}
@@ -56,6 +64,21 @@ export default function App() {
 
   if (view === 'landing') {
     return <Landing onEnter={enter} />
+  }
+
+  // Dashboard requires login. Show a brief loading state while bootstrap runs,
+  // then either the login form or the actual app.
+  if (authStatus === 'idle' || authStatus === 'loading') {
+    return (
+      <div className="hm-boot">
+        <div className="hm-boot-spinner" aria-hidden />
+        <span>Checking session…</span>
+      </div>
+    )
+  }
+
+  if (authStatus !== 'authed') {
+    return <Login onSuccess={() => { /* auth store re-renders us */ }} />
   }
 
   return (

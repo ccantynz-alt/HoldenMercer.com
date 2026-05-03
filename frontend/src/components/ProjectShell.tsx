@@ -9,6 +9,7 @@
 import { useState } from 'react'
 import { useProjects } from '../stores/projects'
 import { Brief } from './Brief'
+import { Console } from './Console'
 import { TaskSwarm } from './TaskSwarm'
 
 type TabId = 'brief' | 'console' | 'swarm' | 'memory' | 'deploy'
@@ -65,7 +66,8 @@ export function ProjectShell() {
       </nav>
 
       <div className="hm-tab-body">
-        {tab === 'brief'   ? <Brief projectId={project.id} />
+        {tab === 'brief'   ? <Brief    projectId={project.id} />
+         : tab === 'console' ? <Console projectId={project.id} />
          : tab === 'swarm' ? <TaskSwarm />
          : <Placeholder tab={tab} />}
       </div>
@@ -76,10 +78,7 @@ export function ProjectShell() {
 function Placeholder({ tab }: { tab: TabId }) {
   const messages: Record<TabId, { title: string; body: string }> = {
     brief:   { title: '', body: '' },
-    console: {
-      title: 'Console — landing next.',
-      body:  'Opus 4.7 with full tool use (file r/w, bash, search, web fetch, cross-repo read), autonomous with smart pause points, dictation-friendly textarea input, and live SSE stream of every tool call.',
-    },
+    console: { title: '', body: '' },
     swarm:   { title: '', body: '' },
     memory:  {
       title: 'Memory — landing in PR C.',

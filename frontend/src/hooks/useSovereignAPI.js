@@ -5,19 +5,11 @@
 
 import { useState, useCallback } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-
-const API_KEY = import.meta.env.VITE_SOVEREIGN_API_KEY || ''
-
-function authHeaders() {
-  const h = { 'Content-Type': 'application/json' }
-  if (API_KEY) h['X-Sovereign-Key'] = API_KEY
-  return h
-}
+import { authFetch } from '../stores/auth'
 
 async function post(path, body) {
-  const res = await fetch(path, {
+  const res = await authFetch(path, {
     method: 'POST',
-    headers: authHeaders(),
     body: JSON.stringify(body),
   })
   if (!res.ok) {
