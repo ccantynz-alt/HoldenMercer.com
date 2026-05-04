@@ -36,11 +36,15 @@ export interface ChatMessage {
 interface ChatState {
   /** projectId → messages */
   threads: Record<string, ChatMessage[]>
+  /** projectId → text the Console should pre-fill into the composer on next mount. */
+  pendingInputs: Record<string, string>
   appendMessage:    (projectId: string, message: ChatMessage) => void
   patchMessage:     (projectId: string, id: string, patch: Partial<ChatMessage>) => void
   appendToolCall:   (projectId: string, messageId: string, call: ToolCall) => void
   patchToolCall:    (projectId: string, messageId: string, callId: string, patch: Partial<ToolCall>) => void
   clearThread:      (projectId: string) => void
+  setPendingInput:  (projectId: string, text: string) => void
+  consumePendingInput: (projectId: string) => string | null
 }
 
 function newId(): string {
@@ -49,8 +53,25 @@ function newId(): string {
 
 export const useChat = create<ChatState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       threads: {},
+      pendingInputs: {},
+
+      setPendingInput: (projectId, text) => set((s) => ({
+        pendingInputs: { ...s.pendingInputs, [projectId]: text },
+      })),
+
+      consumePendingInput: (projectId) => {
+        const text = get().pendingInputs[projectId] ?? null
+        if (text !== null) {
+          set((s) => {
+            const next = { ...s.pendingInputs }
+            delete next[projectId]
+            return { pendingInputs: next }
+          })
+        }
+        return text
+      },
 
       appendMessage: (projectId, message) => set((s) => ({
         threads: {

@@ -8,17 +8,18 @@ import { useProjects } from '../stores/projects'
 import { Brief } from './Brief'
 import { Console } from './Console'
 import { Memory } from './Memory'
+import { Gate } from './Gate'
 import { TaskSwarm } from './TaskSwarm'
 import { LinkRepoModal } from './LinkRepoModal'
 
-type TabId = 'brief' | 'console' | 'swarm' | 'memory' | 'deploy'
+type TabId = 'brief' | 'console' | 'gate' | 'memory' | 'swarm'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'brief',   label: 'Brief'   },
   { id: 'console', label: 'Console' },
+  { id: 'gate',    label: 'Gate'    },
   { id: 'memory',  label: 'Memory'  },
   { id: 'swarm',   label: 'Swarm'   },
-  { id: 'deploy',  label: 'Deploy'  },
 ]
 
 export function ProjectShell() {
@@ -77,9 +78,9 @@ export function ProjectShell() {
       <div className="hm-tab-body">
         {tab === 'brief'    ? <Brief    projectId={project.id} />
          : tab === 'console' ? <Console projectId={project.id} />
+         : tab === 'gate'    ? <Gate    projectId={project.id} onSwitchToConsole={() => setTab('console')} />
          : tab === 'memory'  ? <Memory  projectId={project.id} />
-         : tab === 'swarm'   ? <TaskSwarm />
-         : <Placeholder tab={tab} />}
+         : <TaskSwarm />}
       </div>
 
       <LinkRepoModal
@@ -88,26 +89,5 @@ export function ProjectShell() {
         onClose={() => setLinkOpen(false)}
       />
     </section>
-  )
-}
-
-function Placeholder({ tab }: { tab: TabId }) {
-  const messages: Record<TabId, { title: string; body: string }> = {
-    brief:   { title: '', body: '' },
-    console: { title: '', body: '' },
-    memory:  { title: '', body: '' },
-    swarm:   { title: '', body: '' },
-    deploy:  {
-      title: 'Deploy — landing in PR D.',
-      body:  'CronTech deploy controls + preview URL. The Programmatic Gate (lint + typecheck + tests) runs here; failures auto-repair via the Shadow Architect loop.',
-    },
-  }
-  const { title, body } = messages[tab]
-  if (!title) return null
-  return (
-    <div className="hm-placeholder">
-      <h2 className="hm-placeholder-title">{title}</h2>
-      <p className="hm-placeholder-body">{body}</p>
-    </div>
   )
 }
