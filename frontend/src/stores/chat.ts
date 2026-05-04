@@ -21,10 +21,24 @@ export interface ToolCall {
   errorMsg?:  string
 }
 
+export interface ChatAttachment {
+  /** Stable id for keying / removal. */
+  id:         string
+  /** image/png, image/jpeg, image/gif, image/webp. */
+  mediaType:  string
+  /** Base64-encoded image data, no `data:` prefix. */
+  base64:     string
+  /** Original filename (for display). */
+  name:       string
+  /** Bytes (for display + size limit checks). */
+  size:       number
+}
+
 export interface ChatMessage {
   id:        string
   role:      ChatRole
   text:      string                // markdown-friendly text body
+  attachments?: ChatAttachment[]   // images attached to user messages
   toolCalls: ToolCall[]            // tool calls made *during* this assistant turn
   createdAt: number
   /** The assistant message is still streaming when this is true. */

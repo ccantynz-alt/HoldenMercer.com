@@ -12,11 +12,12 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useChat, newChatId, type ChatMessage, type ToolCall } from '../stores/chat'
+import { useChat, newChatId, type ChatAttachment, type ChatMessage, type ToolCall } from '../stores/chat'
 import { useProjects } from '../stores/projects'
 import { useSettings } from '../stores/settings'
 import { useAuth } from '../stores/auth'
 import { writeFile } from '../lib/repo'
+import { Markdown } from './Markdown'
 
 interface Props {
   projectId: string
@@ -50,10 +51,12 @@ export function Console({ projectId }: Props) {
   const token    = useAuth((s) => s.token)
 
   const [input,    setInput]    = useState('')
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [streaming, setStreaming] = useState(false)
   const [error,    setError]    = useState<string | null>(null)
   const abortRef  = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     const el = scrollRef.current
@@ -74,18 +77,20 @@ export function Console({ projectId }: Props) {
   if (!project) return null
 
   const send = async () => {
-    if (!input.trim() || streaming || !ready || !token) return
+    if ((!input.trim() && attachments.length === 0) || streaming || !ready || !token) return
     setError(null)
 
     const userMessage: ChatMessage = {
-      id:        newChatId(),
-      role:      'user',
-      text:      input.trim(),
-      toolCalls: [],
-      createdAt: Date.now(),
+      id:          newChatId(),
+      role:        'user',
+      text:        input.trim(),
+      attachments: attachments.length ? attachments : undefined,
+      toolCalls:   [],
+      createdAt:   Date.now(),
     }
     appendMessage(projectId, userMessage)
     setInput('')
+    setAttachments([])
 
     const assistantId = newChatId()
     const assistantMessage: ChatMessage = {
@@ -244,6 +249,44 @@ export function Console({ projectId }: Props) {
     }
   }
 
+  const addFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files).filter((f) => f.type.startsWith('image/'))
+    if (list.length === 0) return
+    const next: ChatAttachment[] = []
+    for (const f of list) {
+      if (f.size > 5 * 1024 * 1024) {
+        setError(`${f.name}: image > 5 MB, skipped.`)
+        continue
+      }
+      try {
+        next.push(await fileToAttachment(f))
+      } catch (err) {
+        setError((err as Error).message)
+      }
+      if (attachments.length + next.length >= 5) break
+    }
+    if (next.length) setAttachments((prev) => [...prev, ...next].slice(0, 5))
+  }
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    const imgs: File[] = []
+    for (const it of items) {
+      if (it.kind === 'file' && it.type.startsWith('image/')) {
+        const f = it.getAsFile()
+        if (f) imgs.push(f)
+      }
+    }
+    if (imgs.length) {
+      e.preventDefault()
+      addFiles(imgs)
+    }
+  }
+
+  const removeAttachment = (id: string) =>
+    setAttachments((prev) => prev.filter((a) => a.id !== id))
+
   return (
     <div className="hm-console">
       <div className="hm-console-thread" ref={scrollRef}>
@@ -260,16 +303,50 @@ export function Console({ projectId }: Props) {
         )}
       </div>
 
-      <div className="hm-console-composer">
+      <div
+        className="hm-console-composer"
+        onDragOver={(e) => { e.preventDefault() }}
+        onDrop={(e) => {
+          e.preventDefault()
+          if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files)
+        }}
+      >
         {error && <div className="hm-console-error">{error}</div>}
+        {attachments.length > 0 && (
+          <div className="hm-attach-row">
+            {attachments.map((a) => (
+              <div key={a.id} className="hm-attach-thumb">
+                <img src={`data:${a.mediaType};base64,${a.base64}`} alt={a.name} />
+                <button
+                  type="button"
+                  className="hm-attach-remove"
+                  onClick={() => removeAttachment(a.id)}
+                  aria-label={`Remove ${a.name}`}
+                >×</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          multiple
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            if (e.target.files) addFiles(e.target.files)
+            e.target.value = ''
+          }}
+        />
         <textarea
           className="hm-textarea hm-console-textarea"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKey}
+          onPaste={handlePaste}
           placeholder={
             ready
-              ? `Ask Claude something about ${project.name}.  Cmd+Enter to send.`
+              ? `Ask Claude something about ${project.name}.  Cmd+Enter to send. Paste or drag images to attach.`
               : 'Add your Anthropic API key in Settings to start.'
           }
           rows={3}
@@ -285,6 +362,16 @@ export function Console({ projectId }: Props) {
               : `${settings.defaultModel} · ${settings.autonomy}${project.repo ? ` · writes to ${project.repo}` : ' · no repo linked'}`}
           </span>
           <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              className="hm-btn-ghost"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={streaming || !ready || attachments.length >= 5}
+              title="Attach images (paste or drag also works)"
+              aria-label="Attach image"
+            >
+              📎
+            </button>
             {messages.length > 0 && (
               <button
                 className="hm-btn-ghost"
@@ -300,7 +387,7 @@ export function Console({ projectId }: Props) {
               <button
                 className="hm-btn-primary"
                 onClick={send}
-                disabled={!ready || !input.trim()}
+                disabled={!ready || (!input.trim() && attachments.length === 0)}
               >
                 Send
               </button>
@@ -319,8 +406,23 @@ function MessageRow({
     <div className={`hm-msg hm-msg-${message.role}`}>
       <div className="hm-msg-role">{message.role === 'user' ? 'You' : 'Claude'}</div>
       <div className="hm-msg-body">
+        {message.attachments && message.attachments.length > 0 && (
+          <div className="hm-attach-row hm-attach-row-msg">
+            {message.attachments.map((a) => (
+              <img
+                key={a.id}
+                className="hm-attach-thumb-msg"
+                src={`data:${a.mediaType};base64,${a.base64}`}
+                alt={a.name}
+                title={a.name}
+              />
+            ))}
+          </div>
+        )}
         {message.text ? (
-          <div className="hm-msg-text">{message.text}</div>
+          message.role === 'assistant'
+            ? <Markdown text={message.text} />
+            : <div className="hm-msg-text">{message.text}</div>
         ) : message.streaming && message.toolCalls.length === 0 ? (
           <div className="hm-msg-text hm-msg-thinking">…thinking</div>
         ) : null}
@@ -342,6 +444,14 @@ function ToolCallRow({
 }: { call: ToolCall; repo: string | null; branch: string | null }) {
   const summary = summariseInput(call.tool, call.input)
   const linkUrl = githubUrlForCall(call, repo, branch)
+  // For write tools, show the content Claude wrote (truncated) so the user
+  // can see the change at a glance instead of clicking out to GitHub.
+  const writeContent =
+    (call.tool === 'write_github_file' || call.tool === 'setup_gate_workflow')
+      ? (call.input.content as string | undefined)
+      : null
+  const showContent = writeContent && call.status === 'ok'
+
   return (
     <details className={`hm-tool hm-tool-${call.status}`} open={call.status === 'running'}>
       <summary>
@@ -364,6 +474,14 @@ function ToolCallRow({
       </summary>
       {call.status === 'error' ? (
         <pre className="hm-tool-output hm-tool-error-output">{call.errorMsg}</pre>
+      ) : showContent ? (
+        <div className="hm-tool-output-wrap">
+          {call.preview && <div className="hm-tool-result">{call.preview}</div>}
+          <pre className="hm-tool-output hm-tool-output-code">
+            {(writeContent ?? '').slice(0, 4000)}
+            {(writeContent ?? '').length > 4000 ? '\n…[truncated]' : ''}
+          </pre>
+        </div>
       ) : call.preview ? (
         <pre className="hm-tool-output">{call.preview}</pre>
       ) : null}
@@ -471,8 +589,21 @@ function buildSystemPrompt({
   return parts.join('\n')
 }
 
-function toApiMessage(m: ChatMessage): { role: 'user' | 'assistant'; content: string } {
-  return { role: m.role === 'system' ? 'user' : m.role, content: m.text }
+function toApiMessage(m: ChatMessage): { role: 'user' | 'assistant'; content: string | unknown[] } {
+  const role = (m.role === 'system' ? 'user' : m.role) as 'user' | 'assistant'
+
+  // If there are attachments, send a content-block list (text + image blocks).
+  if (m.attachments && m.attachments.length > 0) {
+    const blocks: unknown[] = m.attachments.map((a) => ({
+      type:   'image',
+      source: { type: 'base64', media_type: a.mediaType, data: a.base64 },
+    }))
+    if (m.text.trim()) {
+      blocks.push({ type: 'text', text: m.text })
+    }
+    return { role, content: blocks }
+  }
+  return { role, content: m.text }
 }
 
 function summariseInput(tool: string, input: Record<string, unknown>): string {
@@ -518,6 +649,24 @@ function githubUrlForCall(call: ToolCall, repo: string | null, branch: string | 
     return `https://github.com/${repoFromInput}/actions/workflows/holden-mercer-gate.yml`
   }
   return null
+}
+
+async function fileToAttachment(file: File): Promise<ChatAttachment> {
+  const buffer = await file.arrayBuffer()
+  const bytes  = new Uint8Array(buffer)
+  // Build base64 in chunks so we don't blow the call stack on large images
+  let binary = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return {
+    id:        Math.random().toString(36).slice(2),
+    name:      file.name || 'image',
+    size:      file.size,
+    mediaType: file.type || 'image/png',
+    base64:    btoa(binary),
+  }
 }
 
 interface SseEvent { event: string; data: any }
