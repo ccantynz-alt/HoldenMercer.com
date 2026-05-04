@@ -9,14 +9,16 @@ import { Brief } from './Brief'
 import { Console } from './Console'
 import { Memory } from './Memory'
 import { Gate } from './Gate'
+import { Preview } from './Preview'
 import { TaskSwarm } from './TaskSwarm'
 import { LinkRepoModal } from './LinkRepoModal'
 
-type TabId = 'brief' | 'console' | 'gate' | 'memory' | 'swarm'
+type TabId = 'brief' | 'console' | 'preview' | 'gate' | 'memory' | 'swarm'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'brief',   label: 'Brief'   },
   { id: 'console', label: 'Console' },
+  { id: 'preview', label: 'Preview' },
   { id: 'gate',    label: 'Gate'    },
   { id: 'memory',  label: 'Memory'  },
   { id: 'swarm',   label: 'Swarm'   },
@@ -78,6 +80,7 @@ export function ProjectShell() {
       <div className="hm-tab-body">
         {tab === 'brief'    ? <Brief    projectId={project.id} />
          : tab === 'console' ? <Console projectId={project.id} />
+         : tab === 'preview' ? <Preview projectId={project.id} />
          : tab === 'gate'    ? <Gate    projectId={project.id} onSwitchToConsole={() => setTab('console')} />
          : tab === 'memory'  ? <Memory  projectId={project.id} />
          : <TaskSwarm />}

@@ -3409,3 +3409,123 @@ body {
   font-style: normal;
   font-weight: 500;
 }
+
+/* ── Preview tab ────────────────────────────────────────────────────────── */
+
+.hm-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+}
+
+.hm-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hm-preview-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hm-preview-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hm-preview-url {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-b-deep);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 480px;
+}
+.hm-preview-url:hover { color: var(--text-primary); }
+.hm-preview-url-empty { color: var(--text-muted); }
+
+.hm-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hm-preview-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.hm-preview-toggle input { accent-color: var(--accent-b); }
+
+.hm-preview-input {
+  width: 320px;
+  max-width: 60vw;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.hm-preview-iframe {
+  flex: 1;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  min-height: 480px;
+}
+
+/* ── Sidebar additions ──────────────────────────────────────────────────── */
+
+.hm-sidebar-search {
+  font-size: 12px;
+  padding: 6px 10px;
+  margin: 0 6px;
+}
+
+.hm-project-repo {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ── Tabs inside a modal (NewProjectModal) ─────────────────────────────── */
+
+.hm-tabs-modal {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+  padding: 0;
+}
+.hm-tabs-modal .hm-tab {
+  padding: 8px 14px;
+  font-size: 12px;
+}
+
+.hm-form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+@media (max-width: 768px) {
+  .hm-preview-iframe   { min-height: 60vh; }
+  .hm-preview-input    { width: 100%; }
+  .hm-preview-actions  { width: 100%; justify-content: flex-end; }
+}

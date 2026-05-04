@@ -20,6 +20,8 @@ export interface Project {
   repo:         string | null
   /** Default branch to commit to. Inherited from the repo, or 'main'. */
   branch:       string | null
+  /** Optional URL of the project's deployed/preview site, embedded in the Preview tab. */
+  previewUrl:   string | null
   status:       ProjectStatus
   createdAt:    number
   lastOpenedAt: number
@@ -29,7 +31,7 @@ interface ProjectsState {
   projects:        Project[]
   activeProjectId: string | null
   setActive:       (id: string | null) => void
-  create:          (input: { name: string; description: string }) => Project
+  create:          (input: { name: string; description: string; repo?: string | null; branch?: string | null }) => Project
   update:          (id: string, patch: Partial<Project>) => void
   remove:          (id: string) => void
 }
@@ -68,15 +70,16 @@ export const useProjects = create<ProjectsState>()(
         }
       }),
 
-      create: ({ name, description }) => {
+      create: ({ name, description, repo, branch }) => {
         const taken = new Set(get().projects.map((p) => p.id))
         const now   = Date.now()
         const project: Project = {
           id:           uniqueId(name, taken),
           name:         name.trim() || 'Untitled',
           description:  description.trim(),
-          repo:         null,
-          branch:       null,
+          repo:         repo ?? null,
+          branch:       branch ?? null,
+          previewUrl:   null,
           status:       'idle',
           createdAt:    now,
           lastOpenedAt: now,
