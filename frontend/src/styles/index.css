@@ -3391,3 +3391,21 @@ body {
   overflow: auto;
   white-space: pre;
 }
+
+/* ── Memory loaded pill in empty state ──────────────────────────────────── */
+
+.hm-console-memory-pill {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 1px dashed var(--accent-b);
+  border-radius: var(--radius);
+  background: var(--accent-b-soft);
+  color: var(--accent-b-deep);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.hm-console-memory-pill em {
+  color: var(--text-primary);
+  font-style: normal;
+  font-weight: 500;
+}
