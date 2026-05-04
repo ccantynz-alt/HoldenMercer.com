@@ -6,6 +6,7 @@
  * sidebar slides in from the left when `isOpen` is true.
  */
 
+import { useMemo, useState } from 'react'
 import { useProjects } from '../stores/projects'
 
 interface Props {
@@ -18,6 +19,18 @@ export function ProjectSidebar({ onNewProject, isOpen, onPickProject }: Props) {
   const projects        = useProjects((s) => s.projects)
   const activeProjectId = useProjects((s) => s.activeProjectId)
   const setActive       = useProjects((s) => s.setActive)
+
+  const [search, setSearch] = useState('')
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return projects
+    return projects.filter((p) =>
+      p.name.toLowerCase().includes(q) ||
+      p.description.toLowerCase().includes(q) ||
+      (p.repo ?? '').toLowerCase().includes(q)
+    )
+  }, [projects, search])
 
   const pick = (id: string) => {
     setActive(id)
@@ -38,6 +51,16 @@ export function ProjectSidebar({ onNewProject, isOpen, onPickProject }: Props) {
         </button>
       </div>
 
+      {projects.length >= 4 && (
+        <input
+          className="hm-input hm-sidebar-search"
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Filter projects…"
+        />
+      )}
+
       {projects.length === 0 ? (
         <div className="hm-sidebar-empty">
           No projects yet.
@@ -48,7 +71,12 @@ export function ProjectSidebar({ onNewProject, isOpen, onPickProject }: Props) {
         </div>
       ) : (
         <ul className="hm-project-list">
-          {projects.map((p) => (
+          {filtered.length === 0 && (
+            <li className="hm-sidebar-empty" style={{ padding: '12px 6px' }}>
+              No projects match "{search}".
+            </li>
+          )}
+          {filtered.map((p) => (
             <li key={p.id}>
               <button
                 className={`hm-project-item${
@@ -57,6 +85,11 @@ export function ProjectSidebar({ onNewProject, isOpen, onPickProject }: Props) {
                 onClick={() => pick(p.id)}
               >
                 <span className="hm-project-name">{p.name}</span>
+                {p.repo && (
+                  <span className="hm-project-repo" title={p.repo}>
+                    {p.repo.split('/').pop()}
+                  </span>
+                )}
                 <span className={`hm-project-status hm-status-${p.status}`}>
                   {p.status}
                 </span>
