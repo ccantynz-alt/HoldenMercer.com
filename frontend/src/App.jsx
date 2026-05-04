@@ -36,6 +36,7 @@ export default function App() {
   })
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [settingsOpen, setSettingsOpen]     = useState(false)
+  const [sidebarOpen, setSidebarOpen]       = useState(false)
 
   // Verify the persisted token against the backend on mount
   useEffect(() => { bootstrap() }, [bootstrap])
@@ -84,6 +85,14 @@ export default function App() {
   return (
     <div className="hm-app">
       <header className="hm-app-header">
+        <button
+          className="hm-icon-btn hm-sidebar-toggle"
+          onClick={() => setSidebarOpen((v) => !v)}
+          aria-label="Toggle projects"
+          title="Toggle projects"
+        >
+          ☰
+        </button>
         <div className="hm-app-brand" onClick={goLanding} title="Back to landing">
           <BoltIcon />
           <span>Holden&nbsp;Mercer</span>
@@ -100,8 +109,12 @@ export default function App() {
       </header>
 
       <div className="hm-app-body">
-        <ProjectSidebar onNewProject={() => setNewProjectOpen(true)} />
-        <main className="hm-app-main">
+        <ProjectSidebar
+          isOpen={sidebarOpen}
+          onNewProject={() => { setSidebarOpen(false); setNewProjectOpen(true) }}
+          onPickProject={() => setSidebarOpen(false)}
+        />
+        <main className="hm-app-main" onClick={() => sidebarOpen && setSidebarOpen(false)}>
           <ProjectShell />
         </main>
       </div>

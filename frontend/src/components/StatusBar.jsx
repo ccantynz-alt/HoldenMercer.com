@@ -1,10 +1,16 @@
 import { useState, useEffect } from 'react'
 import { useSovereignAPI } from '../hooks/useSovereignAPI'
+import { useChat } from '../stores/chat'
 
 export function StatusBar() {
   const { checkHealth } = useSovereignAPI()
   const [status, setStatus] = useState('checking') // checking | ok | err
   const [latency, setLatency] = useState(null)
+
+  // True when any thread has a message currently streaming.
+  const isStreaming = useChat((s) =>
+    Object.values(s.threads).some((t) => t.some((m) => m.streaming))
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -24,6 +30,15 @@ export function StatusBar() {
     const id = setInterval(poll, 30_000)
     return () => { cancelled = true; clearInterval(id) }
   }, [checkHealth])
+
+  if (isStreaming) {
+    return (
+      <div className="status-pill is-streaming">
+        <span className="status-dot streaming" />
+        Claude is working…
+      </div>
+    )
+  }
 
   const labels = { checking: 'Checking…', ok: 'Engine Online', err: 'Offline' }
   const dotClass = { checking: 'spin', ok: 'ok', err: 'err' }

@@ -111,10 +111,23 @@ async def console_stream(req: ConsoleRequest):
                     "max_tokens": req.max_tokens,
                     "messages":   messages,
                 }
+                # Prompt caching — system prompt and tools rarely change within
+                # a project, so caching them cuts repeat-turn cost ~90%. We mark
+                # the system block + last tool with cache_control: ephemeral.
+                # Anthropic caches automatically on subsequent identical prefixes.
                 if req.system:
-                    kwargs["system"] = req.system
+                    kwargs["system"] = [{
+                        "type":          "text",
+                        "text":          req.system,
+                        "cache_control": {"type": "ephemeral"},
+                    }]
                 if tools:
-                    kwargs["tools"] = tools
+                    cached_tools = [dict(t) for t in tools]
+                    cached_tools[-1] = {
+                        **cached_tools[-1],
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                    kwargs["tools"] = cached_tools
 
                 async with client.messages.stream(**kwargs) as resp:
                     async for event in resp:
