@@ -92,6 +92,43 @@ TOOL_SCHEMAS: dict[str, dict] = {
             },
         },
     },
+    "search_repo_code": {
+        "name": "search_repo_code",
+        "description": (
+            "Search the contents of files in a GitHub repository using GitHub's code "
+            "search. Returns up to 25 matches with file paths and snippets. Use this "
+            "to find where something is implemented when you don't know the exact path "
+            "(e.g. 'where is auth handled?', 'where is the hero component?'). Lexical "
+            "search — pick distinctive keywords."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo":  { "type": "string", "description": "Repository in 'owner/name' form." },
+                "query": { "type": "string", "description": "Keywords / identifier / string to search for." },
+            },
+            "required": ["repo", "query"],
+        },
+    },
+    "search_past_sessions": {
+        "name": "search_past_sessions",
+        "description": (
+            "Search through this project's saved session memories (under "
+            ".holdenmercer/sessions/) for keyword matches. Use this when the user asks "
+            "about previous work (\"what did we do last time?\", \"where did we leave "
+            "off?\"). Recent sessions are auto-loaded into your context already; use "
+            "this when you need to look further back."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo":  { "type": "string", "description": "Repository in 'owner/name' form." },
+                "query": { "type": "string", "description": "Keywords to match." },
+                "limit": { "type": "integer", "description": "Max sessions to return. Default 5.", "default": 5 },
+            },
+            "required": ["repo", "query"],
+        },
+    },
     "list_github_dir": {
         "name": "list_github_dir",
         "description": (
@@ -260,6 +297,19 @@ async def run_tool(
             search=tool_input.get("search"),
             token=github_token,
             org=github_org,
+        )
+    if name == "search_repo_code":
+        return await _search_repo_code(
+            repo=tool_input.get("repo", ""),
+            query=tool_input.get("query", ""),
+            token=github_token,
+        )
+    if name == "search_past_sessions":
+        return await _search_past_sessions(
+            repo=tool_input.get("repo", ""),
+            query=tool_input.get("query", ""),
+            limit=int(tool_input.get("limit", 5) or 5),
+            token=github_token,
         )
     raise ValueError(f"Unknown tool: {name}")
 
@@ -558,6 +608,110 @@ async def _create_github_branch(repo: str, branch: str, from_ref: str | None, to
             return f"[error: {resp.status_code} {resp.text[:300]}]"
 
     return f"created branch {branch} in {repo} from {from_ref} ({base_sha[:7]})"
+
+
+# ── search_repo_code ────────────────────────────────────────────────────────
+
+async def _search_repo_code(repo: str, query: str, token: str) -> str:
+    if "/" not in repo:
+        raise ValueError("repo must be in 'owner/name' form.")
+    if not query.strip():
+        raise ValueError("query is required.")
+    if not token:
+        raise ValueError("No GitHub token configured.")
+
+    headers = _gh_headers(token)
+    # GitHub code search requires text/match accept header for snippets.
+    headers["Accept"] = "application/vnd.github.text-match+json"
+    params = {"q": f"{query} repo:{repo}", "per_page": 25}
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.get(
+            f"{GITHUB_API}/search/code",
+            headers=headers,
+            params=params,
+        )
+        if resp.status_code == 422:
+            return "[search rejected: needs at least one keyword + a repo qualifier]"
+        if resp.status_code >= 400:
+            return f"[error: {resp.status_code} {resp.text[:200]}]"
+        data = resp.json()
+
+    items = data.get("items", [])
+    if not items:
+        return f"[no matches for {query!r} in {repo}]"
+
+    rows: list[str] = [f"{data.get('total_count', 0)} match(es) for {query!r} in {repo} (showing {len(items)}):", ""]
+    for it in items:
+        path = it.get("path", "")
+        url  = it.get("html_url", "")
+        rows.append(f"• {path}")
+        rows.append(f"  {url}")
+        for tm in (it.get("text_matches") or [])[:2]:
+            fragment = (tm.get("fragment") or "").strip()
+            if fragment:
+                # Indent for readability and trim absurd lines
+                short = "\n    ".join(fragment.splitlines()[:6])
+                rows.append(f"    {short}")
+        rows.append("")
+    return "\n".join(rows).rstrip()
+
+
+# ── search_past_sessions ────────────────────────────────────────────────────
+
+async def _search_past_sessions(repo: str, query: str, limit: int, token: str) -> str:
+    if "/" not in repo:
+        raise ValueError("repo must be in 'owner/name' form.")
+    if not query.strip():
+        raise ValueError("query is required.")
+    if not token:
+        raise ValueError("No GitHub token configured.")
+
+    headers = _gh_headers(token)
+    listing_url = f"{GITHUB_API}/repos/{repo}/contents/.holdenmercer/sessions"
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        listing_resp = await client.get(listing_url, headers=headers)
+        if listing_resp.status_code == 404:
+            return "[no session history yet — chat with Claude to start writing memories]"
+        listing_resp.raise_for_status()
+        files = [
+            f for f in listing_resp.json()
+            if f.get("type") == "file" and (f.get("name") or "").endswith(".md")
+        ]
+        # Sort newest first by filename (timestamp-prefixed: YYYY-MM-DD-HHMMSS.md)
+        files.sort(key=lambda f: f.get("name", ""), reverse=True)
+
+        # Fetch each file's content, score by query keyword frequency
+        needle = query.lower()
+        scored: list[tuple[int, dict, str]] = []
+        for f in files[:60]:                    # cap how far back we look
+            file_resp = await client.get(
+                f["url"], headers={**headers, "Accept": "application/vnd.github.raw"},
+            )
+            if file_resp.status_code != 200:
+                continue
+            text = file_resp.text
+            score = text.lower().count(needle)
+            if score:
+                scored.append((score, f, text))
+
+    if not scored:
+        return f"[no past sessions match {query!r}]"
+
+    scored.sort(key=lambda t: (-t[0], t[1].get("name", "")), reverse=False)
+    out: list[str] = [f"{len(scored)} matching session(s) for {query!r}:", ""]
+    for score, f, text in scored[:limit]:
+        out.append(f"### {f.get('name')}  ({score} hit{'s' if score != 1 else ''})")
+        # Pull the snippet around the first match
+        idx = text.lower().find(needle)
+        if idx >= 0:
+            start = max(0, idx - 200)
+            end   = min(len(text), idx + 400)
+            snippet = text[start:end].strip()
+            out.append(snippet)
+        out.append("")
+    return "\n".join(out).rstrip()
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────

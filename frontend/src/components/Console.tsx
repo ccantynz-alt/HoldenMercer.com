@@ -11,13 +11,16 @@
  * sessions can read what happened. The repo IS the memory.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useChat, newChatId, type ChatAttachment, type ChatMessage, type ToolCall } from '../stores/chat'
 import { useProjects } from '../stores/projects'
 import { useSettings } from '../stores/settings'
 import { useAuth } from '../stores/auth'
-import { writeFile } from '../lib/repo'
-import { Markdown } from './Markdown'
+import { listDir, readFile, writeFile } from '../lib/repo'
+
+// Markdown drags in react-markdown + highlight.js (~350 KB minified). Defer it
+// past the initial paint — login + landing don't need it.
+const Markdown = lazy(() => import('./Markdown').then((m) => ({ default: m.Markdown })))
 
 interface Props {
   projectId: string
@@ -28,6 +31,8 @@ const ALL_TOOLS = [
   'read_github_file',
   'list_github_repos',
   'list_github_dir',
+  'search_repo_code',
+  'search_past_sessions',
   'write_github_file',
   'delete_github_file',
   'create_github_branch',
@@ -54,6 +59,7 @@ export function Console({ projectId }: Props) {
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [streaming, setStreaming] = useState(false)
   const [error,    setError]    = useState<string | null>(null)
+  const [memorySummaries, setMemorySummaries] = useState<string[]>([])
   const abortRef  = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -71,6 +77,34 @@ export function Console({ projectId }: Props) {
     // Only on project change, not on every render
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
+
+  // Auto-load the 3 most recent session summaries from the linked repo so
+  // Claude has cold-start context on every conversation.
+  useEffect(() => {
+    if (!project?.repo) {
+      setMemorySummaries([])
+      return
+    }
+    const repo   = project.repo
+    const branch = project.branch || undefined
+    let cancelled = false
+    ;(async () => {
+      try {
+        const items = await listDir(repo, '.holdenmercer/sessions', branch)
+        const files = items
+          .filter((it) => it.type === 'file' && it.name.endsWith('.md'))
+          .sort((a, b) => b.name.localeCompare(a.name))   // newest first by timestamp filename
+          .slice(0, 3)
+        const summaries = await Promise.all(
+          files.map((f) => readFile(repo, f.path, branch).catch(() => ''))
+        )
+        if (!cancelled) setMemorySummaries(summaries.filter(Boolean))
+      } catch {
+        if (!cancelled) setMemorySummaries([])
+      }
+    })()
+    return () => { cancelled = true }
+  }, [project?.repo, project?.branch])
 
   const ready = useMemo(() => Boolean(settings.anthropicKey && project), [settings.anthropicKey, project])
 
@@ -110,6 +144,7 @@ export function Console({ projectId }: Props) {
       repo:        project.repo,
       branch:      project.branch,
       autonomy:    settings.autonomy,
+      memories:    memorySummaries,
     })
     const apiMessages = [...messages, userMessage].map(toApiMessage)
 
@@ -297,6 +332,7 @@ export function Console({ projectId }: Props) {
             hasGithub={Boolean(settings.githubToken)}
             hasRepo={Boolean(project.repo)}
             autonomy={settings.autonomy}
+            memoriesLoaded={memorySummaries.length}
           />
         ) : (
           messages.map((m) => <MessageRow key={m.id} message={m} repo={project.repo} branch={project.branch} />)
@@ -421,7 +457,11 @@ function MessageRow({
         )}
         {message.text ? (
           message.role === 'assistant'
-            ? <Markdown text={message.text} />
+            ? (
+                <Suspense fallback={<div className="hm-msg-text">{message.text}</div>}>
+                  <Markdown text={message.text} />
+                </Suspense>
+              )
             : <div className="hm-msg-text">{message.text}</div>
         ) : message.streaming && message.toolCalls.length === 0 ? (
           <div className="hm-msg-text hm-msg-thinking">…thinking</div>
@@ -490,13 +530,14 @@ function ToolCallRow({
 }
 
 function ConsoleEmpty({
-  ready, hasKey, hasGithub, hasRepo, autonomy,
+  ready, hasKey, hasGithub, hasRepo, autonomy, memoriesLoaded,
 }: {
   ready: boolean
   hasKey: boolean
   hasGithub: boolean
   hasRepo: boolean
   autonomy: string
+  memoriesLoaded: number
 }) {
   return (
     <div className="hm-console-empty">
@@ -525,6 +566,12 @@ function ConsoleEmpty({
             : 'Ask Claude to build, fix, or change something. It can read any file in any of your repos and commit changes back when given a target.'}
         </p>
       )}
+      {memoriesLoaded > 0 && (
+        <p className="hm-console-memory-pill">
+          📚 {memoriesLoaded} past session{memoriesLoaded === 1 ? '' : 's'} loaded into context.
+          Ask <em>"where did we leave off?"</em> to pick up.
+        </p>
+      )}
     </div>
   )
 }
@@ -532,13 +579,14 @@ function ConsoleEmpty({
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function buildSystemPrompt({
-  name, description, repo, branch, autonomy,
+  name, description, repo, branch, autonomy, memories,
 }: {
-  name: string
+  name:        string
   description: string
-  repo: string | null
-  branch: string | null
-  autonomy: string
+  repo:        string | null
+  branch:      string | null
+  autonomy:    string
+  memories:    string[]
 }): string {
   const parts: string[] = [
     `You are the build agent for the project "${name}". You're running inside Holden Mercer — a console for power users to build with Claude.`,
@@ -560,6 +608,20 @@ function buildSystemPrompt({
     )
   }
 
+  if (memories.length > 0) {
+    parts.push(
+      `\n--- Recent session memories (read these so you know what we did before) ---`,
+    )
+    memories.forEach((m, i) => {
+      // Cap each summary so the system prompt doesn't balloon
+      const trimmed = m.length > 3000 ? m.slice(0, 3000) + '\n…[truncated]' : m
+      parts.push(`\n[Memory ${i + 1}]\n${trimmed}`)
+    })
+    parts.push(
+      `\n--- end of memories ---\n\nWhen the user asks "where did we leave off?" or similar, lean on these. If you need older context, use \`search_past_sessions\`.`,
+    )
+  }
+
   if (autonomy === 'manual') {
     parts.push(`\nAutonomy: MANUAL — write tools are disabled. Plan and explain only. The user will apply changes themselves.`)
   } else if (autonomy === 'smart') {
@@ -574,6 +636,8 @@ function buildSystemPrompt({
     `  - read_github_file(repo, path): read any file from any repo.`,
     `  - list_github_repos(search?): list the user's repos.`,
     `  - list_github_dir(repo, path): list a directory in a repo.`,
+    `  - search_repo_code(repo, query): keyword-search files in a repo (for "where is X?" questions).`,
+    `  - search_past_sessions(repo, query): keyword-search older session memories.`,
     `  - write_github_file(repo, path, content, commit_message): create or overwrite a file.`,
     `  - delete_github_file(repo, path, commit_message): delete a file.`,
     `  - create_github_branch(repo, branch, from_ref?): create a branch.`,
@@ -583,6 +647,7 @@ function buildSystemPrompt({
     `  - read_gate_logs(repo, run_id): tail the failure logs of a run.`,
     `\nAlways write the FULL file content when using write_github_file — partial edits aren't supported.`,
     `\nWhen you commit changes that touch real code, run the gate afterwards (run_gate) so the user has signal that nothing broke. If the gate hasn't been installed yet, call setup_gate_workflow first. On failure, read_gate_logs, then propose / commit a fix and run the gate again — this is the self-repair loop.`,
+    `\nBefore reading individual files when you don't know paths, use list_github_dir or search_repo_code to find what you need.`,
     `\nBe concise. Skip preamble. Plans should give numbered steps with file paths and the actual change, not abstract advice.`,
   )
 
@@ -611,6 +676,8 @@ function summariseInput(tool: string, input: Record<string, unknown>): string {
   if (tool === 'read_github_file')    return `${input.repo ?? ''}/${input.path ?? ''}${input.ref ? `@${input.ref}` : ''}`
   if (tool === 'list_github_repos')   return input.search ? `search="${input.search}"` : 'all repos'
   if (tool === 'list_github_dir')     return `${input.repo ?? ''}/${input.path ?? '(root)'}`
+  if (tool === 'search_repo_code')    return `${input.repo ?? ''}  q="${input.query ?? ''}"`
+  if (tool === 'search_past_sessions') return `q="${input.query ?? ''}"`
   if (tool === 'write_github_file')   return `${input.repo ?? ''}/${input.path ?? ''}  ←  ${input.commit_message ?? ''}`
   if (tool === 'delete_github_file')  return `${input.repo ?? ''}/${input.path ?? ''}  (delete)`
   if (tool === 'create_github_branch') return `${input.repo ?? ''}  branch=${input.branch ?? ''} from=${input.from_ref ?? 'default'}`
