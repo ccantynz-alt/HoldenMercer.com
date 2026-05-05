@@ -43,6 +43,8 @@ const ALL_TOOLS = [
   'commit_changes',
   'delete_github_file',
   'create_github_branch',
+  'open_pull_request',
+  'merge_pull_request',
   'setup_gate_workflow',
   'run_gate',
   'check_gate',
@@ -881,18 +883,28 @@ function buildSystemPrompt({
     `  - search_past_sessions(repo, query): keyword-search older session memories in this project.`,
     `  - search_my_repos(query): keyword-search file contents across ALL the user's repos. Use when the user references work in a different project ("how did I do auth in another project?").`,
     `  - search_my_sessions(query): keyword-search session memories across ALL projects. Use when you don't know which project a past task lived in.`,
-    `  - write_github_file(repo, path, content, commit_message): create or overwrite a single file (one commit).`,
-    `  - commit_changes(repo, commit_message, files=[{path, action, content}]): ATOMIC multi-file commit. Strongly preferred over multiple write_github_file calls when a logical change touches several files.`,
-    `  - delete_github_file(repo, path, commit_message): delete a file.`,
-    `  - create_github_branch(repo, branch, from_ref?): create a branch.`,
+    `  - write_github_file(repo, path, content, commit_message, branch?): single-file commit.`,
+    `  - commit_changes(repo, commit_message, files=[{path, action, content}], branch?): ATOMIC multi-file commit. Strongly preferred over multiple write_github_file calls when a logical change touches several files.`,
+    `  - delete_github_file(repo, path, commit_message, branch?): delete a file.`,
+    `  - create_github_branch(repo, branch, from_ref?): create a working branch.`,
+    `  - open_pull_request(repo, head, base?, title, body?): open a PR from a working branch back to the default branch.`,
+    `  - merge_pull_request(repo, pull_number, merge_method?): merge a PR — REFUSES if the gate isn't ✅ on the head SHA.`,
     `  - setup_gate_workflow(repo): install the lint/typecheck/tests workflow.`,
     `  - run_gate(repo, branch?): trigger the gate; waits up to ~45s for the result.`,
     `  - check_gate(repo, run_id): poll a specific run.`,
     `  - read_gate_logs(repo, run_id): tail the failure logs of a run.`,
+    `\n──── DOCTRINE: don't break what's working ────`,
+    `\nThe most expensive failure mode in AI building is a new session breaking what an earlier session got working. To prevent that, the workflow for any non-trivial change is:`,
+    `\n  1. create_github_branch(repo, "claude/<short-task-name>")  — work on a feature branch, NEVER directly on the default branch.`,
+    `  2. Make your edits via commit_changes / write_github_file, all targeting your working branch.`,
+    `  3. run_gate(repo, branch=<your branch>) — wait until it goes ✅. If it fails, read_gate_logs, fix, repeat.`,
+    `  4. open_pull_request(repo, head=<your branch>, title=…, body=…) — record the PR number it returns.`,
+    `  5. merge_pull_request(repo, pull_number=<number>) — this REFUSES TO MERGE unless the gate is ✅ on the head SHA. That refusal is the regression guarantee: nothing red lands on main.`,
     `\nAlways write the FULL file content when using write_github_file — partial edits aren't supported.`,
-    `\nWhen you commit changes that touch real code, run the gate afterwards (run_gate) so the user has signal that nothing broke. If the gate hasn't been installed yet, call setup_gate_workflow first. On failure, read_gate_logs, then propose / commit a fix and run the gate again — this is the self-repair loop.`,
-    `\nBefore reading individual files when you don't know paths, use list_github_dir or search_repo_code to find what you need.`,
     `\nWHENEVER you write production code, also write or update its test in the same commit. The Holden Mercer gate runs lint + typecheck + tests on every commit; untested code is unprotected. If the project doesn't have a test setup yet, propose a minimal one (vitest for Node, pytest for Python) before adding feature code. Treat tests as load-bearing, not as an afterthought.`,
+    `\nIf .holdenmercer/invariants.md exists in the repo, read_github_file IT FIRST. It lists things that MUST NOT break (auth, billing, the homepage, etc.). Treat every item as a hard constraint on every change you make.`,
+    `\nBefore reading individual files when you don't know paths, use list_github_dir or search_repo_code to find what you need.`,
+    `\nFor trivial doc-only edits (typo in README, comment fix, no code) you may commit directly to the default branch — but signal intent in the commit message.`,
     `\nBe concise. Skip preamble. Plans should give numbered steps with file paths and the actual change, not abstract advice.`,
   )
 
@@ -932,6 +944,8 @@ function summariseInput(tool: string, input: Record<string, unknown>): string {
   }
   if (tool === 'delete_github_file')  return `${input.repo ?? ''}/${input.path ?? ''}  (delete)`
   if (tool === 'create_github_branch') return `${input.repo ?? ''}  branch=${input.branch ?? ''} from=${input.from_ref ?? 'default'}`
+  if (tool === 'open_pull_request')   return `${input.repo ?? ''}  ${input.head ?? ''} → ${input.base ?? 'default'}  ←  ${input.title ?? ''}`
+  if (tool === 'merge_pull_request')  return `${input.repo ?? ''} #${input.pull_number ?? ''}${input.merge_method ? `  (${input.merge_method})` : ''}`
   if (tool === 'setup_gate_workflow') return `install gate workflow in ${input.repo ?? ''}`
   if (tool === 'run_gate')            return `${input.repo ?? ''}@${input.branch ?? 'default'}`
   if (tool === 'check_gate')          return `${input.repo ?? ''} run ${input.run_id ?? ''}`
@@ -958,6 +972,12 @@ function githubUrlForCall(call: ToolCall, repo: string | null, branch: string | 
     const newBranch = call.input.branch as string | undefined
     if (newBranch) return `https://github.com/${repoFromInput}/tree/${newBranch}`
     return `https://github.com/${repoFromInput}`
+  }
+  if (call.tool === 'open_pull_request' || call.tool === 'merge_pull_request') {
+    const num = call.input.pull_number as number | undefined
+    return num
+      ? `https://github.com/${repoFromInput}/pull/${num}`
+      : `https://github.com/${repoFromInput}/pulls`
   }
   if (call.tool === 'web_fetch') return (call.input.url as string | undefined) ?? null
   if (call.tool === 'setup_gate_workflow') {

@@ -136,6 +136,38 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "open_pull_request",
+        "description": (
+            "Open a PR from a working branch back to the default branch (or a specified base). "
+            "Use this AFTER committing your work to a working branch. Returns the PR number."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "head":  {"type": "string"},
+                "base":  {"type": "string"},
+                "title": {"type": "string"},
+                "body":  {"type": "string"},
+            },
+            "required": ["head", "title"],
+        },
+    },
+    {
+        "name": "merge_pull_request",
+        "description": (
+            "Merge a PR. REFUSES TO MERGE if the Holden Mercer gate isn't ✅ on the head SHA. "
+            "Squash-merges by default. This is the regression guarantee: nothing red lands on main."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pull_number":  {"type": "integer"},
+                "merge_method": {"type": "string", "enum": ["squash", "merge", "rebase"]},
+            },
+            "required": ["pull_number"],
+        },
+    },
+    {
         "name": "delete_file",
         "description": "Delete a file from this repository (real commit). Use sparingly.",
         "input_schema": {
@@ -384,6 +416,75 @@ def tool_trigger_gate(branch: str | None = None) -> str:
     return f"gate triggered on {branch} — view at https://github.com/{REPO}/actions/workflows/holden-mercer-gate.yml"
 
 
+def tool_open_pull_request(head: str, title: str, body: str = "", base: str | None = None) -> str:
+    if not head or not title:
+        return "[error: head + title required]"
+    target = base
+    if not target:
+        r = httpx.get(f"{GH_API}/repos/{REPO}", headers=GH_HEADERS, timeout=20.0)
+        r.raise_for_status()
+        target = r.json().get("default_branch", "main")
+    resp = httpx.post(
+        f"{GH_API}/repos/{REPO}/pulls",
+        headers=GH_HEADERS, timeout=30.0,
+        json={"head": head, "base": target, "title": title, "body": body or ""},
+    )
+    if resp.status_code >= 400:
+        return f"[error: {resp.status_code} {resp.text[:200]}]"
+    data = resp.json()
+    return (
+        f"opened PR #{data.get('number')} ({head} → {target}) — {title}\n"
+        f"  {data.get('html_url')}"
+    )
+
+
+def tool_merge_pull_request(pull_number: int, merge_method: str = "squash") -> str:
+    if not pull_number:
+        return "[error: pull_number required]"
+    if merge_method not in ("squash", "merge", "rebase"):
+        merge_method = "squash"
+
+    pr = httpx.get(f"{GH_API}/repos/{REPO}/pulls/{pull_number}", headers=GH_HEADERS, timeout=20.0)
+    if pr.status_code == 404:
+        return f"[PR #{pull_number} not found]"
+    pr.raise_for_status()
+    p = pr.json()
+    head_sha = p.get("head", {}).get("sha", "")
+    head_ref = p.get("head", {}).get("ref", "")
+    base_ref = p.get("base", {}).get("ref", "")
+    if p.get("merged"):
+        return f"[PR #{pull_number} is already merged]"
+
+    runs = httpx.get(
+        f"{GH_API}/repos/{REPO}/actions/workflows/holden-mercer-gate.yml/runs",
+        headers=GH_HEADERS, timeout=20.0,
+        params={"head_sha": head_sha, "per_page": 1},
+    )
+    if runs.status_code == 404:
+        return "[REFUSED: gate workflow not installed; install + run before merging]"
+    runs.raise_for_status()
+    items = runs.json().get("workflow_runs", [])
+    if not items:
+        return f"[REFUSED: no gate run for {head_sha[:7]} — call trigger_gate first]"
+    latest = items[0]
+    if latest.get("status") != "completed":
+        return f"[REFUSED: gate run still {latest.get('status')!r} on {head_sha[:7]}]"
+    if latest.get("conclusion") != "success":
+        return (
+            f"[REFUSED: gate concluded {latest.get('conclusion')!r} on {head_sha[:7]} — "
+            f"main never receives red commits. Fix on this branch + trigger_gate again.]"
+        )
+
+    merge = httpx.put(
+        f"{GH_API}/repos/{REPO}/pulls/{pull_number}/merge",
+        headers=GH_HEADERS, timeout=30.0,
+        json={"merge_method": merge_method},
+    )
+    if merge.status_code >= 400:
+        return f"[error: {merge.status_code} {merge.text[:200]}]"
+    return f"merged PR #{pull_number} ({head_ref} → {base_ref}) via {merge_method} — gate ✅ on {head_sha[:7]}"
+
+
 def tool_report_result(summary: str, success: bool) -> str:
     raise Done(summary=summary, success=success)
 
@@ -397,6 +498,8 @@ def run_tool(name: str, inp: dict) -> str:
         if name == "delete_file":    return tool_delete_file(inp["path"], inp["commit_message"], inp.get("branch"))
         if name == "web_fetch":      return tool_web_fetch(inp.get("url", ""))
         if name == "trigger_gate":   return tool_trigger_gate(inp.get("branch"))
+        if name == "open_pull_request":  return tool_open_pull_request(inp.get("head", ""), inp.get("title", ""), inp.get("body", ""), inp.get("base"))
+        if name == "merge_pull_request": return tool_merge_pull_request(int(inp.get("pull_number") or 0), inp.get("merge_method") or "squash")
         if name == "report_result":  return tool_report_result(inp["summary"], bool(inp.get("success", True)))
         return f"[unknown tool: {name}]"
     except Done:
@@ -416,25 +519,36 @@ once when finished.
 
 Tools:
   - read_file(path), list_dir(path) — explore the repo
-  - write_file(path, content, commit_message) — single-file commit
-  - commit_changes(commit_message, files=[{path, action, content}]) — ATOMIC multi-file
-    commit (preferred over multiple write_file calls when a logical change touches
-    several files; one commit per intent, not one per file)
-  - delete_file(path, commit_message) — remove files (sparingly)
+  - write_file(path, content, commit_message, branch?) — single-file commit
+  - commit_changes(commit_message, files=[{path, action, content}], branch?) — ATOMIC
+    multi-file commit (preferred when a logical change touches several files)
+  - delete_file(path, commit_message, branch?) — remove files (sparingly)
   - web_fetch(url) — pull external context
-  - trigger_gate() — fire the lint/typecheck/tests workflow after substantial changes
+  - trigger_gate(branch?) — fire the lint/typecheck/tests workflow
+  - open_pull_request(head, title, body?, base?) — open a PR from a working branch
+  - merge_pull_request(pull_number, merge_method?) — merges ONLY if the gate is ✅
+    on the head SHA. Refuses otherwise. The regression guarantee: nothing red lands
+    on main.
   - report_result(summary, success) — REQUIRED: call this when done with a one-paragraph
-    summary of what you accomplished + a success boolean
+    summary + a success boolean.
 
-Conventions:
-  - Always read a file before overwriting it.
-  - Prefer commit_changes for any change touching multiple files (one atomic
-    commit beats N separate ones).
-  - When you write production code, ALSO write/update its test in the same
-    commit. The gate runs them. Untested code is unprotected work.
-  - Trigger the gate after substantial changes; on failure, read_gate_logs
-    and ship a fix.
-  - Be decisive. You will not get another chance to ask the user.
+DOCTRINE — don't break what's working:
+  1. Work on a feature branch named `claude/<short-task>` — NEVER commit directly
+     to the default branch. If you didn't create one yet, do it now via
+     write_file (with branch=…) or by including branch in commit_changes.
+  2. Make your edits — atomic commits via commit_changes when multi-file.
+  3. trigger_gate() with branch=<your branch>. Wait for completion via the
+     workflow run page; if it fails, fix on the branch + trigger again.
+  4. open_pull_request(head=<your branch>, title=…) — record the PR number.
+  5. merge_pull_request(pull_number=<number>) — refuses if gate isn't green.
+     Once it merges, your work is on main + main is provably still green.
+
+If `.holdenmercer/invariants.md` exists in the repo, READ IT FIRST. It lists
+things that must not break. Treat each item as a hard constraint.
+
+When you write production code, also write/update its test in the same commit.
+
+Be decisive. You will not get another chance to ask the user.
 """
 
 

@@ -299,6 +299,49 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["repo", "branch"],
         },
     },
+    "open_pull_request": {
+        "name": "open_pull_request",
+        "description": (
+            "Open a pull request from a working branch back to the repo's default branch (or a "
+            "specified base). Use this AFTER you've committed your work to a working branch — "
+            "the PR is the merge proposal, not the merge itself. Returns the PR number + URL. "
+            "Pair with merge_pull_request to actually ship; merging is gate-protected."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo":  { "type": "string", "description": "Repository in 'owner/name' form." },
+                "head":  { "type": "string", "description": "Working branch with the changes." },
+                "base":  { "type": "string", "description": "Target branch to merge into. Defaults to the repo's default branch." },
+                "title": { "type": "string", "description": "PR title — present-tense summary of the change." },
+                "body":  { "type": "string", "description": "Optional PR description (markdown)." },
+            },
+            "required": ["repo", "head", "title"],
+        },
+    },
+    "merge_pull_request": {
+        "name": "merge_pull_request",
+        "description": (
+            "Merge a pull request into its base branch. REFUSES TO MERGE if the Holden Mercer "
+            "gate hasn't completed successfully on the head SHA — this is the regression "
+            "guarantee: nothing red lands on main. If the gate hasn't run yet, trigger it via "
+            "run_gate first; if it failed, fix the failure on the same branch and re-run. "
+            "Squash-merges by default (clean history)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo":         { "type": "string", "description": "Repository in 'owner/name' form." },
+                "pull_number":  { "type": "integer", "description": "PR number returned by open_pull_request." },
+                "merge_method": {
+                    "type": "string",
+                    "enum": ["squash", "merge", "rebase"],
+                    "description": "How to merge. Default: squash.",
+                },
+            },
+            "required": ["repo", "pull_number"],
+        },
+    },
 }
 
 
@@ -309,6 +352,8 @@ WRITE_TOOL_NAMES: set[str] = {
     "commit_changes",
     "delete_github_file",
     "create_github_branch",
+    "open_pull_request",
+    "merge_pull_request",
     "setup_gate_workflow",   # writes a workflow file
     "run_gate",              # mutates the actions queue
 }
@@ -396,6 +441,22 @@ async def run_tool(
             repo=tool_input.get("repo", ""),
             branch=tool_input.get("branch", ""),
             from_ref=tool_input.get("from_ref"),
+            token=github_token,
+        )
+    if name == "open_pull_request":
+        return await _open_pull_request(
+            repo=tool_input.get("repo", ""),
+            head=tool_input.get("head", ""),
+            base=tool_input.get("base"),
+            title=tool_input.get("title", ""),
+            body=tool_input.get("body", ""),
+            token=github_token,
+        )
+    if name == "merge_pull_request":
+        return await _merge_pull_request(
+            repo=tool_input.get("repo", ""),
+            pull_number=int(tool_input.get("pull_number") or 0),
+            merge_method=tool_input.get("merge_method") or "squash",
             token=github_token,
         )
     if name == "read_github_file":
@@ -1061,6 +1122,137 @@ async def _search_my_sessions(query: str, limit: int, token: str, org: str) -> s
                 rows.append(fragment[:600])
         rows.append("")
     return "\n".join(rows).rstrip()
+
+
+# ── open_pull_request / merge_pull_request ──────────────────────────────────
+
+async def _open_pull_request(
+    repo: str,
+    head: str,
+    base: str | None,
+    title: str,
+    body: str,
+    token: str,
+) -> str:
+    if "/" not in repo:
+        raise ValueError("repo must be in 'owner/name' form.")
+    if not head:
+        raise ValueError("head branch is required.")
+    if not title:
+        raise ValueError("title is required.")
+    if not token:
+        raise ValueError("No GitHub token configured.")
+
+    headers = _gh_headers(token)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        target = base
+        if not target:
+            r = await client.get(f"{GITHUB_API}/repos/{repo}", headers=headers)
+            r.raise_for_status()
+            target = r.json().get("default_branch", "main")
+
+        resp = await client.post(
+            f"{GITHUB_API}/repos/{repo}/pulls",
+            headers=headers,
+            json={"head": head, "base": target, "title": title, "body": body or ""},
+        )
+        if resp.status_code == 422:
+            # Common: "No commits between base and head" or PR already exists
+            return f"[error: {resp.status_code} {resp.text[:300]}]"
+        if resp.status_code >= 400:
+            return f"[error: {resp.status_code} {resp.text[:300]}]"
+        data = resp.json()
+
+    return (
+        f"opened PR #{data.get('number')} in {repo} "
+        f"({head} → {target}) — {title}\n  {data.get('html_url')}"
+    )
+
+
+async def _merge_pull_request(
+    repo: str,
+    pull_number: int,
+    merge_method: str,
+    token: str,
+) -> str:
+    if "/" not in repo:
+        raise ValueError("repo must be in 'owner/name' form.")
+    if not pull_number:
+        raise ValueError("pull_number is required.")
+    if not token:
+        raise ValueError("No GitHub token configured.")
+    if merge_method not in ("squash", "merge", "rebase"):
+        merge_method = "squash"
+
+    headers = _gh_headers(token)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        # Fetch the PR to get head SHA + branches
+        pr = await client.get(f"{GITHUB_API}/repos/{repo}/pulls/{pull_number}", headers=headers)
+        if pr.status_code == 404:
+            return f"[PR #{pull_number} not found in {repo}]"
+        pr.raise_for_status()
+        pr_data    = pr.json()
+        head_sha   = pr_data.get("head", {}).get("sha", "")
+        head_ref   = pr_data.get("head", {}).get("ref", "")
+        base_ref   = pr_data.get("base", {}).get("ref", "")
+        if pr_data.get("merged"):
+            return f"[PR #{pull_number} is already merged]"
+        if pr_data.get("state") == "closed":
+            return f"[PR #{pull_number} is closed (not merged)]"
+
+        # Refuse to merge if the gate hasn't completed successfully on the head SHA.
+        # Look up the most recent gate workflow run for this head_sha.
+        runs = await client.get(
+            f"{GITHUB_API}/repos/{repo}/actions/workflows/holden-mercer-gate.yml/runs",
+            headers=headers,
+            params={"head_sha": head_sha, "per_page": 1},
+        )
+        if runs.status_code == 404:
+            return (
+                "[REFUSED: gate workflow not installed in this repo. "
+                "Install it via setup_gate_workflow, then run_gate on this branch, "
+                "then re-attempt merge_pull_request.]"
+            )
+        runs.raise_for_status()
+        items = runs.json().get("workflow_runs", [])
+        if not items:
+            return (
+                f"[REFUSED: no gate run found for head SHA {head_sha[:7]}. "
+                f"Trigger run_gate(repo={repo!r}, branch={head_ref!r}) first, "
+                f"wait for it to finish, then re-attempt merge_pull_request.]"
+            )
+        latest = items[0]
+        if latest.get("status") != "completed":
+            return (
+                f"[REFUSED: gate run {latest.get('id')} is still {latest.get('status')!r}. "
+                f"Wait via check_gate(repo, run_id={latest.get('id')}) until it completes.]"
+            )
+        if latest.get("conclusion") != "success":
+            return (
+                f"[REFUSED: gate run {latest.get('id')} concluded "
+                f"{latest.get('conclusion')!r} — main never receives a red commit. "
+                f"Read the failure via read_gate_logs(repo, run_id={latest.get('id')}), "
+                f"fix the failure on this branch, run_gate again, then re-attempt.]"
+            )
+
+        # All-clear — perform the merge
+        merge = await client.put(
+            f"{GITHUB_API}/repos/{repo}/pulls/{pull_number}/merge",
+            headers=headers,
+            json={"merge_method": merge_method},
+        )
+        if merge.status_code == 405:
+            return f"[error: PR not mergeable — possible conflicts with {base_ref}]"
+        if merge.status_code == 409:
+            return f"[error: head SHA changed mid-merge; re-fetch PR and retry]"
+        if merge.status_code >= 400:
+            return f"[error: {merge.status_code} {merge.text[:300]}]"
+        m = merge.json()
+
+    return (
+        f"merged PR #{pull_number} ({head_ref} → {base_ref}) via {merge_method} — "
+        f"{m.get('sha', '')[:7]}. Gate was ✅ on {head_sha[:7]}."
+    )
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
