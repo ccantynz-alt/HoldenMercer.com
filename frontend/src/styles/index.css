@@ -3529,3 +3529,62 @@ body {
   .hm-preview-input    { width: 100%; }
   .hm-preview-actions  { width: 100%; justify-content: flex-end; }
 }
+
+/* ── Tasks tab ──────────────────────────────────────────────────────────── */
+
+.hm-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.hm-tasks-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.hm-tasks-title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hm-tasks-help {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-top: 4px;
+  max-width: 720px;
+  line-height: 1.5;
+}
+.hm-tasks-help strong { color: var(--text-primary); font-weight: 600; }
+
+.hm-tasks-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hm-tasks-empty {
+  padding: 16px 18px;
+  border: 1px dashed var(--border-bright);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.hm-tasks-empty code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-elevated);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.hm-tasks-empty a {
+  color: var(--accent-b-deep);
+  text-decoration: underline;
+  word-break: break-all;
+}

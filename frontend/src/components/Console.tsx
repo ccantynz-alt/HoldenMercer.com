@@ -17,6 +17,7 @@ import { useProjects } from '../stores/projects'
 import { useSettings } from '../stores/settings'
 import { useAuth } from '../stores/auth'
 import { listDir, readFile, writeFile } from '../lib/repo'
+import { dispatchTask } from '../lib/jobs'
 
 // Markdown drags in react-markdown + highlight.js (~350 KB minified). Defer it
 // past the initial paint — login + landing don't need it.
@@ -277,6 +278,46 @@ export function Console({ projectId }: Props) {
 
   const stop = () => abortRef.current?.abort()
 
+  const runInBackground = async () => {
+    if (!input.trim() || streaming || !project.repo) return
+    const prompt = input.trim()
+    setError(null)
+    try {
+      const dispatched = await dispatchTask({
+        repo:      project.repo,
+        prompt,
+        brief:     project.description,
+        model:     settings.defaultModel,
+        branch:    project.branch ?? undefined,
+      })
+      // Drop a marker in the chat so the user has a record of what was started
+      appendMessage(projectId, {
+        id:        newChatId(),
+        role:      'user',
+        text:      prompt,
+        toolCalls: [],
+        createdAt: Date.now(),
+      })
+      appendMessage(projectId, {
+        id:        newChatId(),
+        role:      'assistant',
+        text:
+          `🚀 **Background task dispatched** (\`${dispatched.task_id}\`).\n\n` +
+          `Tracking it on the Tasks tab. The agent runs inside GitHub Actions for ` +
+          `up to 6 hours, commits as it goes, and writes a summary to ` +
+          `\`.holdenmercer/tasks/${dispatched.task_id}.md\` when done.\n\n` +
+          `[View the workflow run on GitHub ↗](${dispatched.actions_url})`,
+        toolCalls:  [],
+        createdAt:  Date.now(),
+        stopReason: 'end_turn',
+      })
+      setInput('')
+      setAttachments([])
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault()
@@ -420,13 +461,25 @@ export function Console({ projectId }: Props) {
             {streaming ? (
               <button className="hm-btn-ghost" onClick={stop}>Stop</button>
             ) : (
-              <button
-                className="hm-btn-primary"
-                onClick={send}
-                disabled={!ready || (!input.trim() && attachments.length === 0)}
-              >
-                Send
-              </button>
+              <>
+                {project.repo && (
+                  <button
+                    className="hm-btn-ghost"
+                    onClick={runInBackground}
+                    disabled={!ready || !input.trim()}
+                    title="Send this to the background agent (runs in GitHub Actions for up to 6h)"
+                  >
+                    Run in background ↗
+                  </button>
+                )}
+                <button
+                  className="hm-btn-primary"
+                  onClick={send}
+                  disabled={!ready || (!input.trim() && attachments.length === 0)}
+                >
+                  Send
+                </button>
+              </>
             )}
           </div>
         </div>

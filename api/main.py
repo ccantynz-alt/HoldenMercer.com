@@ -16,6 +16,7 @@ from api.voice_config import router as voice_router
 from api.health_detail import router as health_detail_router
 from api.router import router as cmd_router
 from api.console import router as console_router
+from api.jobs import router as jobs_router
 from api.repo import router as repo_router
 
 _settings = get_settings()
@@ -43,6 +44,7 @@ app.add_middleware(
 # API routes first — must be registered before the SPA catch-all
 app.include_router(auth_router)
 app.include_router(console_router)
+app.include_router(jobs_router)
 app.include_router(repo_router)
 app.include_router(gateway_router)
 app.include_router(command_router)

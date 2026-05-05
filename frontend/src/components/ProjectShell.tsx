@@ -10,16 +10,18 @@ import { Console } from './Console'
 import { Memory } from './Memory'
 import { Gate } from './Gate'
 import { Preview } from './Preview'
+import { Tasks } from './Tasks'
 import { TaskSwarm } from './TaskSwarm'
 import { LinkRepoModal } from './LinkRepoModal'
 
-type TabId = 'brief' | 'console' | 'preview' | 'gate' | 'memory' | 'swarm'
+type TabId = 'brief' | 'console' | 'preview' | 'gate' | 'tasks' | 'memory' | 'swarm'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'brief',   label: 'Brief'   },
   { id: 'console', label: 'Console' },
   { id: 'preview', label: 'Preview' },
   { id: 'gate',    label: 'Gate'    },
+  { id: 'tasks',   label: 'Tasks'   },
   { id: 'memory',  label: 'Memory'  },
   { id: 'swarm',   label: 'Swarm'   },
 ]
@@ -82,6 +84,7 @@ export function ProjectShell() {
          : tab === 'console' ? <Console projectId={project.id} />
          : tab === 'preview' ? <Preview projectId={project.id} />
          : tab === 'gate'    ? <Gate    projectId={project.id} onSwitchToConsole={() => setTab('console')} />
+         : tab === 'tasks'   ? <Tasks   projectId={project.id} />
          : tab === 'memory'  ? <Memory  projectId={project.id} />
          : <TaskSwarm />}
       </div>
