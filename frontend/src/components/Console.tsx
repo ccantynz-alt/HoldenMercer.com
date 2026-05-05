@@ -37,6 +37,8 @@ const ALL_TOOLS = [
   'list_github_dir',
   'search_repo_code',
   'search_past_sessions',
+  'search_my_repos',
+  'search_my_sessions',
   'write_github_file',
   'commit_changes',
   'delete_github_file',
@@ -875,8 +877,10 @@ function buildSystemPrompt({
     `  - read_github_file(repo, path): read any file from any repo.`,
     `  - list_github_repos(search?): list the user's repos.`,
     `  - list_github_dir(repo, path): list a directory in a repo.`,
-    `  - search_repo_code(repo, query): keyword-search files in a repo (for "where is X?" questions).`,
-    `  - search_past_sessions(repo, query): keyword-search older session memories.`,
+    `  - search_repo_code(repo, query): keyword-search files in a single repo.`,
+    `  - search_past_sessions(repo, query): keyword-search older session memories in this project.`,
+    `  - search_my_repos(query): keyword-search file contents across ALL the user's repos. Use when the user references work in a different project ("how did I do auth in another project?").`,
+    `  - search_my_sessions(query): keyword-search session memories across ALL projects. Use when you don't know which project a past task lived in.`,
     `  - write_github_file(repo, path, content, commit_message): create or overwrite a single file (one commit).`,
     `  - commit_changes(repo, commit_message, files=[{path, action, content}]): ATOMIC multi-file commit. Strongly preferred over multiple write_github_file calls when a logical change touches several files.`,
     `  - delete_github_file(repo, path, commit_message): delete a file.`,
@@ -919,6 +923,8 @@ function summariseInput(tool: string, input: Record<string, unknown>): string {
   if (tool === 'list_github_dir')     return `${input.repo ?? ''}/${input.path ?? '(root)'}`
   if (tool === 'search_repo_code')    return `${input.repo ?? ''}  q="${input.query ?? ''}"`
   if (tool === 'search_past_sessions') return `q="${input.query ?? ''}"`
+  if (tool === 'search_my_repos')      return `all repos · q="${input.query ?? ''}"`
+  if (tool === 'search_my_sessions')   return `all sessions · q="${input.query ?? ''}"`
   if (tool === 'write_github_file')   return `${input.repo ?? ''}/${input.path ?? ''}  ←  ${input.commit_message ?? ''}`
   if (tool === 'commit_changes') {
     const files = (input.files as Array<{ path?: string }> | undefined) ?? []

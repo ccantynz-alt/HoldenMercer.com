@@ -129,6 +129,43 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["repo", "query"],
         },
     },
+    "search_my_repos": {
+        "name": "search_my_repos",
+        "description": (
+            "Search file contents across ALL of the user's GitHub repos at once. "
+            "Use this when the user asks about prior work that might live in a "
+            "DIFFERENT project (\"how did I solve auth in another project?\", "
+            "\"find every place I used Stripe\"). Lexical search — pick distinctive "
+            "keywords. Returns up to 30 hits with file paths, repo names, and snippets."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "Keywords / identifier to find." },
+                "user":  {
+                    "type": "string",
+                    "description": "Optional GitHub user/org to scope to. Defaults to the configured GlueCron org.",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    "search_my_sessions": {
+        "name": "search_my_sessions",
+        "description": (
+            "Search session memories across ALL of the user's projects, not just "
+            "this one. Use this when the user is asking about past Claude work "
+            "and you don't know which project they mean."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "Keywords to match." },
+                "limit": { "type": "integer", "description": "Max sessions to return. Default 5.", "default": 5 },
+            },
+            "required": ["query"],
+        },
+    },
     "list_github_dir": {
         "name": "list_github_dir",
         "description": (
@@ -386,6 +423,19 @@ async def run_tool(
             query=tool_input.get("query", ""),
             limit=int(tool_input.get("limit", 5) or 5),
             token=github_token,
+        )
+    if name == "search_my_repos":
+        return await _search_my_repos(
+            query=tool_input.get("query", ""),
+            user=tool_input.get("user") or github_org,
+            token=github_token,
+        )
+    if name == "search_my_sessions":
+        return await _search_my_sessions(
+            query=tool_input.get("query", ""),
+            limit=int(tool_input.get("limit", 5) or 5),
+            token=github_token,
+            org=github_org,
         )
     raise ValueError(f"Unknown tool: {name}")
 
@@ -904,6 +954,113 @@ async def _search_past_sessions(repo: str, query: str, limit: int, token: str) -
             out.append(snippet)
         out.append("")
     return "\n".join(out).rstrip()
+
+
+# ── search_my_repos (lexical, across ALL of the user's repos) ───────────────
+
+async def _search_my_repos(query: str, user: str, token: str) -> str:
+    if not query.strip():
+        raise ValueError("query is required.")
+    if not token:
+        raise ValueError("No GitHub token configured.")
+    if not user:
+        raise ValueError("No GitHub user/org configured.")
+
+    headers = {**_gh_headers(token), "Accept": "application/vnd.github.text-match+json"}
+    # GitHub code search supports a `user:` qualifier to scope across all
+    # repos owned by a user (or `org:` for an org). Try user first; if zero
+    # results, retry with org:.
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.get(
+            f"{GITHUB_API}/search/code",
+            headers=headers,
+            params={"q": f"{query} user:{user}", "per_page": 30},
+        )
+        if resp.status_code == 422:
+            return "[search rejected: needs at least one keyword]"
+        if resp.status_code >= 400:
+            return f"[error: {resp.status_code} {resp.text[:200]}]"
+        data = resp.json()
+        items = data.get("items", [])
+        if not items:
+            # try as org
+            resp2 = await client.get(
+                f"{GITHUB_API}/search/code",
+                headers=headers,
+                params={"q": f"{query} org:{user}", "per_page": 30},
+            )
+            if resp2.status_code < 400:
+                data  = resp2.json()
+                items = data.get("items", [])
+
+    if not items:
+        return f"[no matches for {query!r} across {user}'s repos]"
+
+    rows: list[str] = [
+        f"{data.get('total_count', 0)} match(es) for {query!r} across {user}'s repos "
+        f"(showing {len(items)}):", "",
+    ]
+    for it in items:
+        repo_name = (it.get("repository") or {}).get("full_name", "?")
+        path      = it.get("path", "")
+        url       = it.get("html_url", "")
+        rows.append(f"• {repo_name}/{path}")
+        rows.append(f"  {url}")
+        for tm in (it.get("text_matches") or [])[:2]:
+            fragment = (tm.get("fragment") or "").strip()
+            if fragment:
+                short = "\n    ".join(fragment.splitlines()[:6])
+                rows.append(f"    {short}")
+        rows.append("")
+    return "\n".join(rows).rstrip()
+
+
+# ── search_my_sessions (across ALL projects' .holdenmercer/sessions/) ───────
+
+async def _search_my_sessions(query: str, limit: int, token: str, org: str) -> str:
+    if not query.strip():
+        raise ValueError("query is required.")
+    if not token:
+        raise ValueError("No GitHub token configured.")
+    if not org:
+        raise ValueError("No GitHub user/org configured.")
+
+    # Use code search with a path filter — finds matching session files across
+    # any repo we have access to under the user/org.
+    headers = {**_gh_headers(token), "Accept": "application/vnd.github.text-match+json"}
+    qparts = [query, f"user:{org}", "path:.holdenmercer/sessions"]
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.get(
+            f"{GITHUB_API}/search/code",
+            headers=headers,
+            params={"q": " ".join(qparts), "per_page": min(limit, 25)},
+        )
+        if resp.status_code == 422:
+            return "[search rejected: needs at least one keyword]"
+        if resp.status_code >= 400:
+            return f"[error: {resp.status_code} {resp.text[:200]}]"
+        data  = resp.json()
+        items = data.get("items", [])
+
+    if not items:
+        return f"[no past sessions match {query!r} across your projects]"
+
+    rows: list[str] = [
+        f"{len(items)} matching session(s) for {query!r}:", "",
+    ]
+    for it in items[:limit]:
+        repo_name = (it.get("repository") or {}).get("full_name", "?")
+        name      = it.get("name", "")
+        url       = it.get("html_url", "")
+        rows.append(f"### {repo_name} — {name}")
+        rows.append(f"  {url}")
+        for tm in (it.get("text_matches") or [])[:1]:
+            fragment = (tm.get("fragment") or "").strip()
+            if fragment:
+                rows.append("")
+                rows.append(fragment[:600])
+        rows.append("")
+    return "\n".join(rows).rstrip()
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
