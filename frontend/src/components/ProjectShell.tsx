@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useProjects } from '../stores/projects'
 import { useSettings, type DockablePane } from '../stores/settings'
 import { Brief } from './Brief'
+import { Planner } from './Planner'
 import { Console } from './Console'
 import { Memory } from './Memory'
 import { Gate } from './Gate'
@@ -24,10 +25,11 @@ import { TaskSwarm } from './TaskSwarm'
 import { LinkRepoModal } from './LinkRepoModal'
 import { ResizeHandle } from './ResizeHandle'
 
-type TabId = 'brief' | 'console' | 'preview' | 'gate' | 'tasks' | 'memory' | 'swarm'
+type TabId = 'brief' | 'planner' | 'console' | 'preview' | 'gate' | 'tasks' | 'memory' | 'swarm'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'brief',   label: 'Brief'   },
+  { id: 'planner', label: 'Planner' },
   { id: 'console', label: 'Console' },
   { id: 'preview', label: 'Preview' },
   { id: 'gate',    label: 'Gate'    },
@@ -191,6 +193,7 @@ export function ProjectShell() {
 
 function renderPane(tab: TabId, projectId: string, switchToConsole: () => void) {
   return tab === 'brief'    ? <Brief    projectId={projectId} />
+       : tab === 'planner'  ? <Planner  projectId={projectId} onSwitchToConsole={switchToConsole} />
        : tab === 'console'  ? <Console  projectId={projectId} />
        : tab === 'preview'  ? <Preview  projectId={projectId} />
        : tab === 'gate'     ? <Gate     projectId={projectId} onSwitchToConsole={switchToConsole} />
