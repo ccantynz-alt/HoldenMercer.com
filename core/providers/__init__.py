@@ -26,16 +26,16 @@ def get_code_host(name: str | None = None) -> CodeHost:
 
     if name == "github":
         return GitHubCodeHost()
+    if name == "gluecron":
+        from .gluecron import GlueCronCodeHost
+        return GlueCronCodeHost()
     # Add future providers here:
-    # if name == "gluecron":
-    #     from .gluecron import GlueCronCodeHost
-    #     return GlueCronCodeHost()
     # if name == "crontech":
     #     from .crontech import CronTechCodeHost
     #     return CronTechCodeHost()
 
     raise ValueError(
-        f"Unknown CODE_HOST={name!r}. Supported: github. "
+        f"Unknown CODE_HOST={name!r}. Supported: github, gluecron. "
         "Add a provider module under core/providers/ + a factory branch."
     )
 
