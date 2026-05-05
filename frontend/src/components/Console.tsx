@@ -12,7 +12,10 @@
  */
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { useChat, newChatId, type ChatAttachment, type ChatMessage, type ToolCall } from '../stores/chat'
+import {
+  useChat, newChatId,
+  type ChatAttachment, type ChatMessage, type ChatAgent, type ToolCall,
+} from '../stores/chat'
 import { useProjects } from '../stores/projects'
 import { useSettings } from '../stores/settings'
 import { useAuth } from '../stores/auth'
@@ -279,6 +282,145 @@ export function Console({ projectId }: Props) {
 
   const stop = () => abortRef.current?.abort()
 
+  const runAsSwarm = async () => {
+    if (!input.trim() || streaming || !ready || !token) return
+    setError(null)
+
+    const prompt = input.trim()
+    const userMessage: ChatMessage = {
+      id:        newChatId(),
+      role:      'user',
+      text:      prompt,
+      attachments: attachments.length ? attachments : undefined,
+      toolCalls: [],
+      createdAt: Date.now(),
+    }
+    appendMessage(projectId, userMessage)
+    setInput('')
+    setAttachments([])
+
+    // Pre-create three assistant messages for the three phases.
+    const phaseIds: Record<ChatAgent, string> = {
+      claude:    '',
+      architect: newChatId(),
+      coder:     newChatId(),
+      reviewer:  newChatId(),
+    }
+    for (const agent of ['architect', 'coder', 'reviewer'] as ChatAgent[]) {
+      appendMessage(projectId, {
+        id:        phaseIds[agent],
+        role:      'assistant',
+        text:      '',
+        toolCalls: [],
+        createdAt: Date.now(),
+        agent,
+        streaming: agent === 'architect',
+      })
+    }
+
+    setStreaming(true)
+    const ac = new AbortController()
+    abortRef.current = ac
+    let currentPhase: ChatAgent = 'architect'
+    const phaseText: Record<ChatAgent, string> = { claude: '', architect: '', coder: '', reviewer: '' }
+
+    try {
+      const res = await fetch('/api/console/swarm', {
+        method: 'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          messages:      [{ role: 'user', content: prompt }],
+          anthropic_key: settings.anthropicKey,
+          github_token:  settings.githubToken,
+          model:         settings.defaultModel,
+          autonomy:      settings.autonomy,
+          project_name:   project.name,
+          project_brief:  project.description,
+          project_repo:   project.repo ?? '',
+          project_branch: project.branch ?? '',
+        }),
+        signal: ac.signal,
+      })
+      if (!res.ok || !res.body) {
+        const detail = await res.text().catch(() => res.statusText)
+        throw new Error(`HTTP ${res.status}: ${detail}`)
+      }
+
+      const reader  = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+
+        let nl
+        while ((nl = buffer.indexOf('\n\n')) !== -1) {
+          const raw = buffer.slice(0, nl)
+          buffer = buffer.slice(nl + 2)
+          const event = parseSseEvent(raw)
+          if (!event) continue
+          const phase = (event.data?.phase as ChatAgent | undefined) ?? currentPhase
+
+          if (event.event === 'phase_start') {
+            currentPhase = (event.data.phase as ChatAgent) ?? currentPhase
+            patchMessage(projectId, phaseIds[currentPhase], { streaming: true })
+          } else if (event.event === 'phase_end') {
+            patchMessage(projectId, phaseIds[phase], { streaming: false })
+          } else if (event.event === 'text_delta') {
+            phaseText[phase] += event.data.delta ?? ''
+            patchMessage(projectId, phaseIds[phase], { text: phaseText[phase] })
+          } else if (event.event === 'tool_use_start') {
+            appendTool(projectId, phaseIds[phase], {
+              id:     event.data.id,
+              tool:   event.data.tool,
+              input:  event.data.input ?? {},
+              status: 'running',
+            })
+          } else if (event.event === 'tool_use_result') {
+            patchTool(projectId, phaseIds[phase], event.data.id, {
+              status:  'ok',
+              preview: event.data.output ?? '',
+            })
+          } else if (event.event === 'tool_use_error') {
+            patchTool(projectId, phaseIds[phase], event.data.id, {
+              status:   'error',
+              errorMsg: event.data.error ?? 'unknown error',
+            })
+          } else if (event.event === 'turn_end') {
+            // intra-phase turn boundary — nothing visible
+          } else if (event.event === 'done') {
+            for (const a of ['architect', 'coder', 'reviewer'] as ChatAgent[]) {
+              patchMessage(projectId, phaseIds[a], { streaming: false })
+            }
+          } else if (event.event === 'error') {
+            throw new Error(event.data.message ?? 'swarm error')
+          }
+        }
+      }
+
+      for (const a of ['architect', 'coder', 'reviewer'] as ChatAgent[]) {
+        patchMessage(projectId, phaseIds[a], { streaming: false })
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (!/aborted/i.test(message)) setError(message)
+      for (const a of ['architect', 'coder', 'reviewer'] as ChatAgent[]) {
+        patchMessage(projectId, phaseIds[a], {
+          streaming: false,
+          text: phaseText[a] || (a === currentPhase ? `[error: ${message}]` : ''),
+        })
+      }
+    } finally {
+      abortRef.current = null
+      setStreaming(false)
+    }
+  }
+
   const runInBackground = async () => {
     if (!input.trim() || streaming || !project.repo) return
     const prompt = input.trim()
@@ -463,6 +605,14 @@ export function Console({ projectId }: Props) {
               <button className="hm-btn-ghost" onClick={stop}>Stop</button>
             ) : (
               <>
+                <button
+                  className="hm-btn-ghost"
+                  onClick={runAsSwarm}
+                  disabled={!ready || !input.trim()}
+                  title="Run as a 3-agent swarm: Architect plans, Coder builds, Reviewer critiques"
+                >
+                  🧩 Swarm
+                </button>
                 {project.repo && (
                   <button
                     className="hm-btn-ghost"
@@ -492,9 +642,18 @@ export function Console({ projectId }: Props) {
 function MessageRow({
   message, repo, branch,
 }: { message: ChatMessage; repo: string | null; branch: string | null }) {
+  const agent = message.agent
+  const roleLabel =
+    message.role === 'user'
+      ? 'You'
+      : agent === 'architect' ? '🧭 Architect'
+      : agent === 'coder'     ? '🛠 Coder'
+      : agent === 'reviewer'  ? '🔍 Reviewer'
+      : 'Claude'
+  const agentClass = agent ? ` hm-msg-agent-${agent}` : ''
   return (
-    <div className={`hm-msg hm-msg-${message.role}`}>
-      <div className="hm-msg-role">{message.role === 'user' ? 'You' : 'Claude'}</div>
+    <div className={`hm-msg hm-msg-${message.role}${agentClass}`}>
+      <div className="hm-msg-role">{roleLabel}</div>
       <div className="hm-msg-body">
         {message.attachments && message.attachments.length > 0 && (
           <div className="hm-attach-row hm-attach-row-msg">

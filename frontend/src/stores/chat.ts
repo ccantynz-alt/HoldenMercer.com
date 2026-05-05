@@ -9,7 +9,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type ChatRole = 'user' | 'assistant' | 'system'
+export type ChatRole  = 'user' | 'assistant' | 'system'
+export type ChatAgent = 'claude' | 'architect' | 'coder' | 'reviewer'
 
 /** Inline tool-call record so we can render it next to the message that triggered it. */
 export interface ToolCall {
@@ -41,6 +42,8 @@ export interface ChatMessage {
   attachments?: ChatAttachment[]   // images attached to user messages
   toolCalls: ToolCall[]            // tool calls made *during* this assistant turn
   createdAt: number
+  /** Optional persona — defaults to 'claude'. Used by the multi-agent swarm. */
+  agent?:    ChatAgent
   /** The assistant message is still streaming when this is true. */
   streaming?: boolean
   /** Set once the turn finishes, e.g. 'end_turn' | 'tool_use' | 'max_tokens'. */
