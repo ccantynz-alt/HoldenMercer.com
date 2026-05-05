@@ -1,14 +1,15 @@
 /**
  * Settings store — user-level config, persisted to localStorage.
  *
- * BYOK Anthropic key lives here. PR B will pass it to the backend on every
- * Console request so we never store it server-side.
+ * BYOK Anthropic key, GitHub PAT, autonomy + model defaults, plus the
+ * dockable-pane state for the multi-pane workspace (PR #4 / killer #4).
  */
 
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type AutonomyMode = 'manual' | 'smart' | 'auto'
+export type AutonomyMode  = 'manual' | 'smart' | 'auto'
+export type DockablePane  = 'brief' | 'preview' | 'gate' | 'tasks' | 'memory' | 'swarm'
 
 interface SettingsState {
   anthropicKey:  string
@@ -16,11 +17,18 @@ interface SettingsState {
   githubOrg:     string         // default owner for `list_github_repos`
   autonomy:      AutonomyMode
   defaultModel:  string
+  /** When set + viewport is wide enough, this pane docks to the right of the
+   *  active tab so e.g. Console + Preview can sit side-by-side. */
+  dockedPane:    DockablePane | null
+  /** Width of the docked pane in pixels. Persisted so it sticks across reloads. */
+  dockedWidth:   number
   setAnthropicKey: (key: string) => void
   setGithubToken:  (key: string) => void
   setGithubOrg:    (org: string) => void
   setAutonomy:     (mode: AutonomyMode) => void
   setDefaultModel: (model: string) => void
+  setDockedPane:   (pane: DockablePane | null) => void
+  setDockedWidth:  (px: number) => void
 }
 
 export const useSettings = create<SettingsState>()(
@@ -31,11 +39,15 @@ export const useSettings = create<SettingsState>()(
       githubOrg:    '',
       autonomy:     'smart',
       defaultModel: 'claude-opus-4-7',
+      dockedPane:   null,
+      dockedWidth:  480,
       setAnthropicKey: (key)   => set({ anthropicKey: key.trim() }),
       setGithubToken:  (key)   => set({ githubToken: key.trim() }),
       setGithubOrg:    (org)   => set({ githubOrg: org.trim() }),
       setAutonomy:     (mode)  => set({ autonomy: mode }),
       setDefaultModel: (model) => set({ defaultModel: model }),
+      setDockedPane:   (pane)  => set({ dockedPane: pane }),
+      setDockedWidth:  (px)    => set({ dockedWidth: Math.max(280, Math.min(960, Math.round(px))) }),
     }),
     { name: 'holdenmercer:settings:v1' }
   )

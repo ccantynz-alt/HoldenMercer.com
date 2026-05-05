@@ -7,6 +7,8 @@ import { ProjectSidebar } from './components/ProjectSidebar'
 import { ProjectShell } from './components/ProjectShell'
 import { NewProjectModal } from './components/NewProjectModal'
 import { SettingsPanel } from './components/SettingsPanel'
+import { Discover } from './components/Discover'
+import { PublicProject } from './components/PublicProject'
 import { useAuth } from './stores/auth'
 
 const BoltIcon = () => (
@@ -24,16 +26,29 @@ const GearIcon = () => (
 
 const ENTERED_KEY = 'holdenmercer:entered:v1'
 
+/**
+ * Resolve the current view from the URL hash. Public views (`#discover`,
+ * `#p/<owner>/<repo>`) bypass the login wall — they render straight from
+ * GitHub's public API so anyone can read them.
+ */
+function readView() {
+  if (typeof window === 'undefined') return { kind: 'landing' }
+  const h = window.location.hash || ''
+  if (h === '#dashboard') return { kind: 'dashboard' }
+  if (h === '#home')      return { kind: 'landing' }
+  if (h === '#discover')  return { kind: 'discover' }
+  const pub = h.match(/^#p\/([^/]+)\/([^/?#]+)/)
+  if (pub) return { kind: 'public', owner: pub[1], repo: pub[2] }
+  // Default: previously-entered users land on dashboard, first-timers on landing
+  try { return localStorage.getItem(ENTERED_KEY) === '1' ? { kind: 'dashboard' } : { kind: 'landing' } }
+  catch { return { kind: 'landing' } }
+}
+
 export default function App() {
   const authStatus = useAuth((s) => s.status)
   const bootstrap  = useAuth((s) => s.bootstrap)
 
-  const [view, setView] = useState(() => {
-    if (typeof window === 'undefined') return 'landing'
-    if (window.location.hash === '#dashboard') return 'dashboard'
-    try { return localStorage.getItem(ENTERED_KEY) === '1' ? 'dashboard' : 'landing' }
-    catch { return 'landing' }
-  })
+  const [view, setView] = useState(readView)
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [settingsOpen, setSettingsOpen]     = useState(false)
   const [sidebarOpen, setSidebarOpen]       = useState(false)
@@ -43,32 +58,47 @@ export default function App() {
 
   const enter = () => {
     try { localStorage.setItem(ENTERED_KEY, '1') } catch {}
-    setView('dashboard')
+    setView({ kind: 'dashboard' })
     if (window.location.hash !== '#dashboard') window.location.hash = '#dashboard'
   }
 
   const goLanding = () => {
-    setView('landing')
+    setView({ kind: 'landing' })
     if (window.location.hash) {
       history.replaceState(null, '', window.location.pathname + window.location.search)
     }
   }
 
+  const goDiscover = () => {
+    setView({ kind: 'discover' })
+    if (window.location.hash !== '#discover') window.location.hash = '#discover'
+  }
+
+  const openPublicProject = (owner, repo) => {
+    setView({ kind: 'public', owner, repo })
+    const h = `#p/${owner}/${repo}`
+    if (window.location.hash !== h) window.location.hash = h
+  }
+
   useEffect(() => {
-    const onHash = () => {
-      if (window.location.hash === '#dashboard') setView('dashboard')
-      else if (window.location.hash === '#home') setView('landing')
-    }
+    const onHash = () => setView(readView())
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
-  if (view === 'landing') {
-    return <Landing onEnter={enter} />
+  // Public views — no auth required, no Holden Mercer backend involved
+  if (view.kind === 'discover') {
+    return <Discover onOpenProject={openPublicProject} onBackToLanding={goLanding} />
+  }
+  if (view.kind === 'public') {
+    return <PublicProject owner={view.owner} repo={view.repo} onBack={goDiscover} />
   }
 
-  // Dashboard requires login. Show a brief loading state while bootstrap runs,
-  // then either the login form or the actual app.
+  if (view.kind === 'landing') {
+    return <Landing onEnter={enter} onDiscover={goDiscover} />
+  }
+
+  // Dashboard requires login.
   if (authStatus === 'idle' || authStatus === 'loading') {
     return (
       <div className="hm-boot">
