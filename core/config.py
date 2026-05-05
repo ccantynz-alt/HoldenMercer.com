@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     gluecron_github_token: str = ""   # PAT with repo:read scope
     gluecron_github_org: str = ""     # org or username that owns GlueCron repos
 
+    # Provider for code-host operations. "github" is the only impl today;
+    # "gluecron" / "crontech" land when those backends are ready. The
+    # CodeHost interface in core/providers/base.py keeps callers neutral.
+    code_host: str = "github"
+
     # CronTech — deployment target + voice provider
     crontech_api_url: str = ""        # e.g. https://api.crontech.ai
     crontech_api_key: str = ""        # CronTech service account key
