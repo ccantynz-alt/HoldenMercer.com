@@ -21,7 +21,7 @@ import { useSettings } from '../stores/settings'
 import { useAuth } from '../stores/auth'
 import {
   listDir, readFile, writeFile,
-  recentCommits, openPullRequests, inProgressRuns, readActiveWork,
+  recentCommits, openPullRequests, inProgressRuns, readActiveWork, readInvariants,
   type RecentCommit, type OpenPR, type InProgressRun, type ActiveWorkManifest,
 } from '../lib/repo'
 import { dispatchTask } from '../lib/jobs'
@@ -76,6 +76,7 @@ export function Console({ projectId }: Props) {
   const [streaming, setStreaming] = useState(false)
   const [error,    setError]    = useState<string | null>(null)
   const [memorySummaries, setMemorySummaries] = useState<string[]>([])
+  const [invariants,      setInvariants]      = useState<string | null>(null)
   const [preflight, setPreflight] = useState<{
     commits: RecentCommit[]
     prs:     OpenPR[]
@@ -134,6 +135,7 @@ export function Console({ projectId }: Props) {
   useEffect(() => {
     if (!project?.repo) {
       setPreflight(null)
+      setInvariants(null)
       return
     }
     const repo   = project.repo
@@ -141,15 +143,22 @@ export function Console({ projectId }: Props) {
     let cancelled = false
     ;(async () => {
       try {
-        const [commits, prs, runs, active] = await Promise.all([
+        const [commits, prs, runs, active, inv] = await Promise.all([
           recentCommits(repo, branch, 10),
           openPullRequests(repo, 10),
           inProgressRuns(repo, 5),
           readActiveWork(repo, branch || undefined),
+          readInvariants(repo, branch || undefined),
         ])
-        if (!cancelled) setPreflight({ commits, prs, runs, active })
+        if (!cancelled) {
+          setPreflight({ commits, prs, runs, active })
+          setInvariants(inv)
+        }
       } catch {
-        if (!cancelled) setPreflight(null)
+        if (!cancelled) {
+          setPreflight(null)
+          setInvariants(null)
+        }
       }
     })()
     return () => { cancelled = true }
@@ -194,9 +203,28 @@ export function Console({ projectId }: Props) {
       branch:      project.branch,
       autonomy:    settings.autonomy,
       memories:    memorySummaries,
+      invariants,
       preflight,
     })
-    const apiMessages = [...messages, userMessage].map(toApiMessage)
+
+    // Flywheel-first: on the FIRST turn of a fresh thread, prepend a synthetic
+    // [user "Load flywheel"] / [assistant "<flywheel snapshot>"] exchange so
+    // the agent literally sees that it has loaded the canonical state. This
+    // is harder to ignore than a system-prompt directive — the prior assistant
+    // turn IS its acknowledgment.
+    const isFirstTurn   = messages.length === 0
+    const flywheelTurns = isFirstTurn
+      ? buildFlywheelBootstrap({
+          name:        project.name,
+          repo:        project.repo,
+          branch:      project.branch,
+          description: project.description,
+          invariants,
+          preflight,
+          memoriesCount: memorySummaries.length,
+        })
+      : []
+    const apiMessages = [...flywheelTurns, ...messages.map(toApiMessage), toApiMessage(userMessage)]
 
     const ac = new AbortController()
     abortRef.current = ac
@@ -873,7 +901,7 @@ function ConsoleEmpty({
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function buildSystemPrompt({
-  name, description, repo, branch, autonomy, memories, preflight,
+  name, description, repo, branch, autonomy, memories, invariants, preflight,
 }: {
   name:        string
   description: string
@@ -881,6 +909,7 @@ function buildSystemPrompt({
   branch:      string | null
   autonomy:    string
   memories:    string[]
+  invariants:  string | null
   preflight:   {
     commits: RecentCommit[]
     prs:     OpenPR[]
@@ -905,6 +934,13 @@ function buildSystemPrompt({
   } else {
     parts.push(
       `\nThis project is NOT linked to a GitHub repo yet, so write tools won't have a target. If the user asks you to write code, propose it as fenced code blocks and suggest they link a repo.`
+    )
+  }
+
+  if (invariants && invariants.trim()) {
+    const trimmed = invariants.length > 4000 ? invariants.slice(0, 4000) + '\n…[truncated]' : invariants
+    parts.push(
+      `\n--- INVARIANTS (.holdenmercer/invariants.md — these MUST NOT break) ---\n${trimmed}\n--- end of invariants ---\n\nTreat each item as a hard constraint on every change. If your work would break any of these, STOP and ask the user.`,
     )
   }
 
@@ -1005,9 +1041,11 @@ function buildSystemPrompt({
     `  - run_gate(repo, branch?): trigger the gate; waits up to ~45s for the result.`,
     `  - check_gate(repo, run_id): poll a specific run.`,
     `  - read_gate_logs(repo, run_id): tail the failure logs of a run.`,
-    `\n──── DOCTRINE: don't break what's working ────`,
-    `\nThe most expensive failure mode in AI building is a new session breaking what an earlier session got working. To prevent that, the workflow for any non-trivial change is:`,
-    `\n  0. PRE-FLIGHT — review the pre-flight briefing above (already injected). If a planned file is in an open PR's diff or another agent's claimed scope, branch from THAT branch, not the default. Don't race.`,
+    `\n──── DOCTRINE: flywheel-first, don't break what's working ────`,
+    `\nThis session was bootstrapped from the project's FLYWHEEL — the brief, the invariants, the recent commits, the open PRs, the in-flight workflow runs, the active-work claims. They're already in your conversation history (see the prior assistant turn). You acknowledged them. You will respect them.`,
+    `\nThe most expensive failure mode in AI building is a new session ignoring what earlier sessions established and going rogue. The flywheel is your guard against that.`,
+    `\nThe workflow for any non-trivial change is:`,
+    `\n  0. RE-CHECK the flywheel if anything in your plan is unclear: call check_recent_activity to refresh. If a planned file is in an open PR's diff or another agent's claimed scope, branch from THAT branch, not the default. Don't race.`,
     `  1. create_github_branch(repo, "claude/<short-task-name>")  — work on a feature branch, NEVER directly on the default branch.`,
     `  2. claim_work(repo, branch, intent, scope) — record your claim BEFORE editing so concurrent agents see it.`,
     `  3. Make your edits via commit_changes / write_github_file, all targeting your working branch.`,
@@ -1024,6 +1062,110 @@ function buildSystemPrompt({
   )
 
   return parts.join('\n')
+}
+
+/**
+ * Flywheel-first bootstrap. Built ONCE on the first user turn of a fresh
+ * thread, prepended to the message history Claude sees. The agent literally
+ * receives a prior turn where it has acknowledged the canonical state.
+ *
+ * Returns either an empty array (no flywheel data) or a [user, assistant]
+ * pair shaped like Anthropic message format.
+ */
+function buildFlywheelBootstrap({
+  name, repo, branch, description, invariants, preflight, memoriesCount,
+}: {
+  name:           string
+  repo:           string | null
+  branch:         string | null
+  description:    string
+  invariants:     string | null
+  preflight:      { commits: RecentCommit[]; prs: OpenPR[]; runs: InProgressRun[]; active: ActiveWorkManifest } | null
+  memoriesCount:  number
+}): { role: 'user' | 'assistant'; content: string }[] {
+  if (!repo) return []
+
+  const lines: string[] = []
+  lines.push(`# Flywheel snapshot — ${name}`)
+  lines.push('')
+  lines.push(`Repo: \`${repo}\` · default branch: \`${branch || 'main'}\``)
+  lines.push('')
+
+  if (description.trim()) {
+    lines.push('## Brief')
+    lines.push(description.trim().slice(0, 4000))
+    lines.push('')
+  }
+
+  if (invariants && invariants.trim()) {
+    const trimmed = invariants.length > 4000 ? invariants.slice(0, 4000) + '\n…[truncated]' : invariants
+    lines.push('## Invariants (must NOT break)')
+    lines.push(trimmed)
+    lines.push('')
+  }
+
+  if (preflight) {
+    const { commits, prs, runs, active } = preflight
+    if (commits.length) {
+      lines.push(`## Recent commits on default branch (${commits.length})`)
+      commits.slice(0, 10).forEach((c) =>
+        lines.push(`- \`${c.sha}\`  ${c.date}  ${c.author ?? '?'}: ${c.message}`),
+      )
+      lines.push('')
+    }
+    lines.push(`## Open PRs (${prs.length})`)
+    if (prs.length === 0) {
+      lines.push('_(none)_')
+    } else {
+      prs.forEach((p) =>
+        lines.push(`- #${p.number}  \`${p.head}\` → \`${p.base}\`  by ${p.author ?? '?'}: ${p.title}`),
+      )
+    }
+    lines.push('')
+    lines.push(`## In-progress workflow runs (${runs.length})`)
+    if (runs.length === 0) {
+      lines.push('_(none)_')
+    } else {
+      runs.forEach((r) => lines.push(`- run ${r.id} · ${r.workflow} · \`${r.branch}\` · ${r.status}`))
+    }
+    lines.push('')
+    const claims = active?.active ?? []
+    lines.push(`## Active-work manifest (${claims.length} branch claims)`)
+    if (claims.length === 0) {
+      lines.push('_(no in-flight branches claimed)_')
+    } else {
+      claims.forEach((c) => {
+        const scope = (c.scope ?? []).slice(0, 6).join(', ') || '(no scope listed)'
+        lines.push(`- \`${c.branch}\`  agent=${c.agent} — ${c.intent}`)
+        lines.push(`  scope: ${scope}`)
+      })
+    }
+    lines.push('')
+  }
+
+  if (memoriesCount > 0) {
+    lines.push(`## Memory: ${memoriesCount} recent session(s) loaded into the system prompt above.`)
+    lines.push('')
+  }
+
+  lines.push('---')
+  lines.push(
+    'I have loaded the flywheel. I will respect the brief, the invariants, ' +
+    'the active-work claims, and the gate-protected branch+PR workflow on every ' +
+    'change. If the user asks for something that conflicts with any of the above, ' +
+    'I will surface the conflict before acting.'
+  )
+
+  return [
+    {
+      role:    'user',
+      content: 'Initialize. Load the project flywheel state and confirm.',
+    },
+    {
+      role:    'assistant',
+      content: lines.join('\n'),
+    },
+  ]
 }
 
 function toApiMessage(m: ChatMessage): { role: 'user' | 'assistant'; content: string | unknown[] } {

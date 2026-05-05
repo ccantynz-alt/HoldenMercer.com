@@ -298,10 +298,13 @@ def tool_list_dir(path: str = "", ref: str | None = None) -> str:
     items = resp.json()
     if isinstance(items, dict):
         return f"{items.get('type', 'file')}  {items.get('path')}"
-    rows = [
-        f"{it.get('type'):5}  {it.get('name')}{'' if it.get('type') == 'dir' else f'  ({it.get(\"size\", 0)} bytes)'}"
-        for it in items
-    ]
+    rows = []
+    for it in items:
+        kind = it.get('type', '?')
+        name = it.get('name', '?')
+        size = it.get('size', 0)
+        suffix = '' if kind == 'dir' else f'  ({size} bytes)'
+        rows.append(f"{kind:5}  {name}{suffix}")
     return "\n".join(rows) or "[empty]"
 
 
@@ -688,7 +691,7 @@ once when finished.
 Tools:
   - read_file(path), list_dir(path) — explore the repo
   - write_file(path, content, commit_message, branch?) — single-file commit
-  - commit_changes(commit_message, files=[{path, action, content}], branch?) — ATOMIC
+  - commit_changes(commit_message, files=[{{path, action, content}}], branch?) — ATOMIC
     multi-file commit (preferred when a logical change touches several files)
   - delete_file(path, commit_message, branch?) — remove files (sparingly)
   - web_fetch(url) — pull external context
@@ -700,11 +703,15 @@ Tools:
   - report_result(summary, success) — REQUIRED: call this when done with a one-paragraph
     summary + a success boolean.
 
-DOCTRINE — don't break what's working:
-  0. PRE-FLIGHT FIRST: call check_recent_activity() to snapshot recent commits,
-     open PRs, in-progress runs, and the active-work manifest. If a planned file
-     is in another open PR's diff or another agent's claimed scope, branch from
-     THAT branch — don't race.
+DOCTRINE — flywheel-first, don't break what's working:
+  This session was bootstrapped from the project's FLYWHEEL — the brief, any
+  invariants, recent commits, open PRs, in-flight runs, active claims. They're
+  in your prior assistant turn. You have already acknowledged them. Respect them.
+
+  0. RE-CHECK: if anything in your plan touches code where you're uncertain
+     about current state, call check_recent_activity() to refresh. If a planned
+     file is in another open PR's diff or another agent's claimed scope, branch
+     from THAT branch — don't race.
   1. Work on a feature branch named `claude/<short-task>` — NEVER commit directly
      to the default branch.
   2. claim_work(branch, intent, scope) — record your claim BEFORE editing so
@@ -724,9 +731,54 @@ Be decisive. You will not get another chance to ask the user.
 """
 
 
+def _build_flywheel_bootstrap() -> list[dict]:
+    """Returns a synthetic [user, assistant] pair that loads the project's
+    flywheel — brief, invariants, recent activity, claims — into the agent's
+    very first conversational turn. Same purpose as the Console version: the
+    agent literally starts having acknowledged canonical state."""
+    parts: list[str] = [f"# Flywheel snapshot — {REPO}", ""]
+
+    if BRIEF.strip():
+        parts += ["## Brief", BRIEF.strip()[:4000], ""]
+
+    # Invariants
+    headers = {**GH_HEADERS, "Accept": "application/vnd.github.raw"}
+    inv = httpx.get(
+        f"{GH_API}/repos/{REPO}/contents/.holdenmercer/invariants.md",
+        headers=headers, timeout=20.0,
+    )
+    if inv.status_code == 200 and inv.text.strip():
+        text = inv.text[:4000]
+        parts += ["## Invariants (must NOT break)", text, ""]
+
+    # Recent activity (commits / PRs / runs / active claims)
+    try:
+        parts += ["## Recent activity", "```", tool_check_recent_activity()[:4000], "```", ""]
+    except Exception as exc:
+        parts += [f"_(recent-activity fetch failed: {exc})_", ""]
+
+    parts += [
+        "---",
+        (
+            "I have loaded the flywheel. I will respect the brief, the invariants, "
+            "the active-work claims, and the gate-protected branch+PR workflow on "
+            "every change. Before any commit I will (1) create_github_branch, "
+            "(2) claim_work, then edit, run_gate, open_pull_request, "
+            "merge_pull_request (gate-protected), release_work."
+        ),
+    ]
+
+    return [
+        {"role": "user",      "content": "Initialize. Load the project flywheel state and confirm."},
+        {"role": "assistant", "content": "\n".join(parts)},
+    ]
+
+
 def run() -> dict:
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY, timeout=120.0)
-    messages: list[dict] = [{"role": "user", "content": PROMPT}]
+    messages: list[dict] = _build_flywheel_bootstrap() + [
+        {"role": "user", "content": PROMPT},
+    ]
     transcript: list[str] = []
     started = time.time()
     summary  = ""

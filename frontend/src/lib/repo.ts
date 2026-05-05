@@ -219,3 +219,12 @@ export async function readActiveWork(repo: string, branch?: string): Promise<Act
     return { version: 1, active: [] }
   }
 }
+
+/** Read .holdenmercer/invariants.md — load-bearing things the agent must not break. */
+export async function readInvariants(repo: string, branch?: string): Promise<string | null> {
+  try {
+    return await readFile(repo, '.holdenmercer/invariants.md', branch)
+  } catch {
+    return null
+  }
+}
