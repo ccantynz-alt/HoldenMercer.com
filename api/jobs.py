@@ -30,6 +30,14 @@ from api.agent_workflow import (
     TASK_WORKFLOW_PATH,
     TASK_WORKFLOW_YAML,
 )
+from api.cron_workflow import (
+    CRON_RUNNER_REPO_PATH,
+    CRON_RUNNER_SOURCE,
+    CRON_WORKFLOW_PATH,
+    CRON_WORKFLOW_YAML,
+    SAMPLE_SCHEDULES_YAML,
+    SCHEDULES_FILE_PATH,
+)
 from api.console_tools import GITHUB_API, _gh_headers
 
 logger = logging.getLogger(__name__)
@@ -235,6 +243,61 @@ async def list_tasks(req: ListRequest):
         for r in runs
     ]
     return {"runs": out, "workflow_installed": True}
+
+
+# ── Cron setup ──────────────────────────────────────────────────────────────
+
+@router.post("/setup-cron", dependencies=[Depends(require_api_key)])
+async def setup_cron_workflow(req: SetupRequest):
+    token = _resolve_token(req.github_token)
+    if "/" not in req.repo:
+        raise HTTPException(status_code=400, detail="repo must be in 'owner/name' form.")
+    if not token:
+        raise HTTPException(status_code=400, detail="No GitHub token configured.")
+
+    headers = _gh_headers(token)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        # Always (re)write the workflow + runner so updates flow.
+        await _put_file(
+            client, req.repo, CRON_WORKFLOW_PATH, CRON_WORKFLOW_YAML,
+            "chore(cron): install Holden Mercer cron workflow",
+            req.branch, headers,
+        )
+        await _put_file(
+            client, req.repo, CRON_RUNNER_REPO_PATH, CRON_RUNNER_SOURCE,
+            "chore(cron): install cron evaluator",
+            req.branch, headers,
+        )
+
+        # Only seed schedules.yml if it doesn't exist yet — never clobber.
+        existing = await client.get(
+            f"{GITHUB_API}/repos/{req.repo}/contents/{SCHEDULES_FILE_PATH}",
+            headers=headers,
+            params={"ref": req.branch} if req.branch else None,
+        )
+        if existing.status_code == 404:
+            await _put_file(
+                client, req.repo, SCHEDULES_FILE_PATH, SAMPLE_SCHEDULES_YAML,
+                "chore(cron): seed schedules.yml",
+                req.branch, headers,
+            )
+            seeded = True
+        else:
+            seeded = False
+
+    return {
+        "result": (
+            "installed cron workflow + evaluator. "
+            f"Edit `.holdenmercer/schedules.yml` (or ask the Console: "
+            f"\"add a schedule that does X every weekday at 9am UTC\"). "
+            f"The cron workflow runs every 15 minutes."
+        ),
+        "schedules_file_seeded": seeded,
+        "schedules_url": (
+            f"https://github.com/{req.repo}/blob/"
+            f"{req.branch or 'HEAD'}/{SCHEDULES_FILE_PATH}"
+        ),
+    }
 
 
 # ── Result ──────────────────────────────────────────────────────────────────

@@ -169,6 +169,7 @@ async def console_stream(req: ConsoleRequest):
                             tool_input=tu["input"],
                             github_token=github_token,
                             github_org=settings.gluecron_github_org,
+                            autonomy=req.autonomy,
                         )
                         yield _sse("tool_use_result", {"id": tu["id"], "output": _truncate_for_event(output)})
                         tool_results.append({

@@ -1,0 +1,17 @@
+{
+  "name": "Holden Mercer — AI Builder Console",
+  "short_name": "Holden Mercer",
+  "description": "An AI website builder console. Run many Claude-driven projects in parallel with persistent memory, programmatic gates, and self-repairing builds.",
+  "start_url": "/#dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#fafaf7",
+  "theme_color": "#0a0a0b",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "categories": ["productivity", "developer", "utilities"]
+}

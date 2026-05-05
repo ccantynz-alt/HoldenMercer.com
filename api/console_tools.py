@@ -129,6 +129,43 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["repo", "query"],
         },
     },
+    "search_my_repos": {
+        "name": "search_my_repos",
+        "description": (
+            "Search file contents across ALL of the user's GitHub repos at once. "
+            "Use this when the user asks about prior work that might live in a "
+            "DIFFERENT project (\"how did I solve auth in another project?\", "
+            "\"find every place I used Stripe\"). Lexical search — pick distinctive "
+            "keywords. Returns up to 30 hits with file paths, repo names, and snippets."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "Keywords / identifier to find." },
+                "user":  {
+                    "type": "string",
+                    "description": "Optional GitHub user/org to scope to. Defaults to the configured GlueCron org.",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    "search_my_sessions": {
+        "name": "search_my_sessions",
+        "description": (
+            "Search session memories across ALL of the user's projects, not just "
+            "this one. Use this when the user is asking about past Claude work "
+            "and you don't know which project they mean."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "Keywords to match." },
+                "limit": { "type": "integer", "description": "Max sessions to return. Default 5.", "default": 5 },
+            },
+            "required": ["query"],
+        },
+    },
     "list_github_dir": {
         "name": "list_github_dir",
         "description": (
@@ -158,10 +195,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
     "write_github_file": {
         "name": "write_github_file",
         "description": (
-            "Create or overwrite a single file in a GitHub repository, producing a real commit. "
-            "Use this to make actual changes to the user's project. The whole file must be "
-            "supplied — partial edits are not supported. Always read the file first if it might "
-            "exist so your write doesn't overwrite work the user wanted to keep."
+            "Create or overwrite a SINGLE file in a GitHub repository, producing one "
+            "commit. Use this for one-off edits. Prefer `commit_changes` when touching "
+            "multiple files at once — it makes one atomic commit instead of N."
         ),
         "input_schema": {
             "type": "object",
@@ -179,6 +215,51 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 },
             },
             "required": ["repo", "path", "content", "commit_message"],
+        },
+    },
+    "commit_changes": {
+        "name": "commit_changes",
+        "description": (
+            "Make ONE atomic commit that touches multiple files (creates, updates, "
+            "and/or deletes). Strongly preferred over multiple write_github_file "
+            "calls when a logical change spans more than one file — produces a clean "
+            "history (one commit per intent, not one commit per file). Uses the git "
+            "Trees API under the hood."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo": { "type": "string", "description": "Repository in 'owner/name' form." },
+                "commit_message": {
+                    "type": "string",
+                    "description": "Single commit message describing the whole change.",
+                },
+                "files": {
+                    "type": "array",
+                    "description": "List of file changes to apply atomically.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": { "type": "string", "description": "File path within the repo." },
+                            "action": {
+                                "type": "string",
+                                "enum": ["create", "update", "delete"],
+                                "description": "What to do with the file.",
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "Full UTF-8 content (required for create / update; ignored for delete).",
+                            },
+                        },
+                        "required": ["path", "action"],
+                    },
+                },
+                "branch": {
+                    "type": "string",
+                    "description": "Optional target branch. Defaults to the repo's default branch.",
+                },
+            },
+            "required": ["repo", "commit_message", "files"],
         },
     },
     "delete_github_file": {
@@ -225,10 +306,18 @@ TOOL_SCHEMAS: dict[str, dict] = {
 # autonomy modes (manual mode = read-only).
 WRITE_TOOL_NAMES: set[str] = {
     "write_github_file",
+    "commit_changes",
     "delete_github_file",
     "create_github_branch",
     "setup_gate_workflow",   # writes a workflow file
     "run_gate",              # mutates the actions queue
+}
+
+# Tools that delete or otherwise can't be reversed automatically. Smart-pause
+# autonomy refuses these unless the user explicitly switches to full-auto.
+# Manual mode strips them entirely (via WRITE_TOOL_NAMES).
+DESTRUCTIVE_TOOL_NAMES: set[str] = {
+    "delete_github_file",
 }
 
 
@@ -245,8 +334,24 @@ async def run_tool(
     tool_input: dict,
     github_token: str,
     github_org: str,
+    autonomy: str = "auto",
 ) -> str:
-    """Run a tool by name. Returns plain text Claude can consume."""
+    """Run a tool by name. Returns plain text Claude can consume.
+
+    Smart-pause guardrails: in autonomy='smart', destructive ops (delete_file)
+    are refused with a clear message instead of executed. The agent gets the
+    refusal as the tool result and can either rephrase, ask the user, or
+    propose a safer alternative.
+    """
+    if autonomy == "smart" and name in DESTRUCTIVE_TOOL_NAMES:
+        return (
+            f"[SMART-PAUSE: refused to call {name} with input {tool_input!r} — "
+            f"this is a destructive operation. Smart-pause autonomy blocks "
+            f"destructive ops by default to keep the user's work safe. If the "
+            f"user explicitly asked for this, suggest they switch autonomy to "
+            f"'auto' in Settings, or propose a non-destructive alternative.]"
+        )
+
     # Gate tools live in their own module to keep this file from sprawling.
     from api.gate_tools import GATE_TOOL_NAMES, run_gate_tool
     if name in GATE_TOOL_NAMES:
@@ -266,6 +371,14 @@ async def run_tool(
             repo=tool_input.get("repo", ""),
             path=tool_input.get("path", ""),
             content=tool_input.get("content", ""),
+            commit_message=tool_input.get("commit_message", "Update via Holden Mercer"),
+            branch=tool_input.get("branch"),
+            token=github_token,
+        )
+    if name == "commit_changes":
+        return await _commit_changes(
+            repo=tool_input.get("repo", ""),
+            files=tool_input.get("files") or [],
             commit_message=tool_input.get("commit_message", "Update via Holden Mercer"),
             branch=tool_input.get("branch"),
             token=github_token,
@@ -310,6 +423,19 @@ async def run_tool(
             query=tool_input.get("query", ""),
             limit=int(tool_input.get("limit", 5) or 5),
             token=github_token,
+        )
+    if name == "search_my_repos":
+        return await _search_my_repos(
+            query=tool_input.get("query", ""),
+            user=tool_input.get("user") or github_org,
+            token=github_token,
+        )
+    if name == "search_my_sessions":
+        return await _search_my_sessions(
+            query=tool_input.get("query", ""),
+            limit=int(tool_input.get("limit", 5) or 5),
+            token=github_token,
+            org=github_org,
         )
     raise ValueError(f"Unknown tool: {name}")
 
@@ -523,6 +649,122 @@ async def _write_github_file(
         return f"{action} {repo}/{path} on {ref}  ({size} bytes, commit {sha[:7]})"
 
 
+# ── commit_changes (multi-file atomic commit via git Trees API) ─────────────
+
+async def _commit_changes(
+    repo: str,
+    files: list[dict],
+    commit_message: str,
+    branch: str | None,
+    token: str,
+) -> str:
+    if "/" not in repo:
+        raise ValueError("repo must be in 'owner/name' form.")
+    if not files:
+        raise ValueError("files list is required.")
+    if not token:
+        raise ValueError("No GitHub token configured.")
+
+    headers = _gh_headers(token)
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        # Resolve target branch
+        target = branch
+        if not target:
+            r = await client.get(f"{GITHUB_API}/repos/{repo}", headers=headers)
+            r.raise_for_status()
+            target = r.json().get("default_branch", "main")
+
+        # Get current ref → commit → tree
+        ref = await client.get(
+            f"{GITHUB_API}/repos/{repo}/git/refs/heads/{target}", headers=headers,
+        )
+        if ref.status_code == 404:
+            return f"[branch not found: {target}]"
+        ref.raise_for_status()
+        head_sha = ref.json()["object"]["sha"]
+
+        head_commit = await client.get(
+            f"{GITHUB_API}/repos/{repo}/git/commits/{head_sha}", headers=headers,
+        )
+        head_commit.raise_for_status()
+        base_tree_sha = head_commit.json()["tree"]["sha"]
+
+        # Build tree entries — create a blob for each create / update,
+        # null SHA for each delete.
+        tree_entries: list[dict] = []
+        creates_or_updates = 0
+        deletes            = 0
+        for f in files:
+            path   = (f.get("path") or "").lstrip("/")
+            action = (f.get("action") or "update").lower()
+            if not path:
+                return f"[error: file entry missing 'path']"
+
+            if action == "delete":
+                deletes += 1
+                tree_entries.append({
+                    "path": path, "mode": "100644", "type": "blob", "sha": None,
+                })
+                continue
+
+            content = f.get("content") or ""
+            blob = await client.post(
+                f"{GITHUB_API}/repos/{repo}/git/blobs",
+                headers=headers,
+                json={"content": content, "encoding": "utf-8"},
+            )
+            if blob.status_code >= 400:
+                return f"[error creating blob for {path}: {blob.status_code} {blob.text[:200]}]"
+            tree_entries.append({
+                "path": path, "mode": "100644", "type": "blob",
+                "sha":  blob.json()["sha"],
+            })
+            creates_or_updates += 1
+
+        # Create new tree on top of base
+        new_tree = await client.post(
+            f"{GITHUB_API}/repos/{repo}/git/trees",
+            headers=headers,
+            json={"base_tree": base_tree_sha, "tree": tree_entries},
+        )
+        if new_tree.status_code >= 400:
+            return f"[error creating tree: {new_tree.status_code} {new_tree.text[:300]}]"
+        new_tree_sha = new_tree.json()["sha"]
+
+        # Create commit pointing at new tree
+        new_commit = await client.post(
+            f"{GITHUB_API}/repos/{repo}/git/commits",
+            headers=headers,
+            json={
+                "message": commit_message,
+                "tree":    new_tree_sha,
+                "parents": [head_sha],
+            },
+        )
+        if new_commit.status_code >= 400:
+            return f"[error creating commit: {new_commit.status_code} {new_commit.text[:300]}]"
+        new_sha = new_commit.json()["sha"]
+
+        # Fast-forward the branch ref
+        update = await client.patch(
+            f"{GITHUB_API}/repos/{repo}/git/refs/heads/{target}",
+            headers=headers,
+            json={"sha": new_sha, "force": False},
+        )
+        if update.status_code >= 400:
+            return (
+                f"[error updating ref {target}: {update.status_code} {update.text[:300]}]\n"
+                f"  (commit {new_sha[:7]} was created but ref couldn't be updated — "
+                "likely a fast-forward conflict; try again)"
+            )
+
+    return (
+        f"committed {creates_or_updates} write(s) + {deletes} delete(s) to "
+        f"{repo}@{target} as {new_sha[:7]} — \"{commit_message}\""
+    )
+
+
 # ── delete_github_file ──────────────────────────────────────────────────────
 
 async def _delete_github_file(
@@ -712,6 +954,113 @@ async def _search_past_sessions(repo: str, query: str, limit: int, token: str) -
             out.append(snippet)
         out.append("")
     return "\n".join(out).rstrip()
+
+
+# ── search_my_repos (lexical, across ALL of the user's repos) ───────────────
+
+async def _search_my_repos(query: str, user: str, token: str) -> str:
+    if not query.strip():
+        raise ValueError("query is required.")
+    if not token:
+        raise ValueError("No GitHub token configured.")
+    if not user:
+        raise ValueError("No GitHub user/org configured.")
+
+    headers = {**_gh_headers(token), "Accept": "application/vnd.github.text-match+json"}
+    # GitHub code search supports a `user:` qualifier to scope across all
+    # repos owned by a user (or `org:` for an org). Try user first; if zero
+    # results, retry with org:.
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.get(
+            f"{GITHUB_API}/search/code",
+            headers=headers,
+            params={"q": f"{query} user:{user}", "per_page": 30},
+        )
+        if resp.status_code == 422:
+            return "[search rejected: needs at least one keyword]"
+        if resp.status_code >= 400:
+            return f"[error: {resp.status_code} {resp.text[:200]}]"
+        data = resp.json()
+        items = data.get("items", [])
+        if not items:
+            # try as org
+            resp2 = await client.get(
+                f"{GITHUB_API}/search/code",
+                headers=headers,
+                params={"q": f"{query} org:{user}", "per_page": 30},
+            )
+            if resp2.status_code < 400:
+                data  = resp2.json()
+                items = data.get("items", [])
+
+    if not items:
+        return f"[no matches for {query!r} across {user}'s repos]"
+
+    rows: list[str] = [
+        f"{data.get('total_count', 0)} match(es) for {query!r} across {user}'s repos "
+        f"(showing {len(items)}):", "",
+    ]
+    for it in items:
+        repo_name = (it.get("repository") or {}).get("full_name", "?")
+        path      = it.get("path", "")
+        url       = it.get("html_url", "")
+        rows.append(f"• {repo_name}/{path}")
+        rows.append(f"  {url}")
+        for tm in (it.get("text_matches") or [])[:2]:
+            fragment = (tm.get("fragment") or "").strip()
+            if fragment:
+                short = "\n    ".join(fragment.splitlines()[:6])
+                rows.append(f"    {short}")
+        rows.append("")
+    return "\n".join(rows).rstrip()
+
+
+# ── search_my_sessions (across ALL projects' .holdenmercer/sessions/) ───────
+
+async def _search_my_sessions(query: str, limit: int, token: str, org: str) -> str:
+    if not query.strip():
+        raise ValueError("query is required.")
+    if not token:
+        raise ValueError("No GitHub token configured.")
+    if not org:
+        raise ValueError("No GitHub user/org configured.")
+
+    # Use code search with a path filter — finds matching session files across
+    # any repo we have access to under the user/org.
+    headers = {**_gh_headers(token), "Accept": "application/vnd.github.text-match+json"}
+    qparts = [query, f"user:{org}", "path:.holdenmercer/sessions"]
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.get(
+            f"{GITHUB_API}/search/code",
+            headers=headers,
+            params={"q": " ".join(qparts), "per_page": min(limit, 25)},
+        )
+        if resp.status_code == 422:
+            return "[search rejected: needs at least one keyword]"
+        if resp.status_code >= 400:
+            return f"[error: {resp.status_code} {resp.text[:200]}]"
+        data  = resp.json()
+        items = data.get("items", [])
+
+    if not items:
+        return f"[no past sessions match {query!r} across your projects]"
+
+    rows: list[str] = [
+        f"{len(items)} matching session(s) for {query!r}:", "",
+    ]
+    for it in items[:limit]:
+        repo_name = (it.get("repository") or {}).get("full_name", "?")
+        name      = it.get("name", "")
+        url       = it.get("html_url", "")
+        rows.append(f"### {repo_name} — {name}")
+        rows.append(f"  {url}")
+        for tm in (it.get("text_matches") or [])[:1]:
+            fragment = (tm.get("fragment") or "").strip()
+            if fragment:
+                rows.append("")
+                rows.append(fragment[:600])
+        rows.append("")
+    return "\n".join(rows).rstrip()
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────

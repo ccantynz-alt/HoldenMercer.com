@@ -6,8 +6,10 @@
  * the settings store.
  */
 
+import { useEffect, useState } from 'react'
 import { useSettings, type AutonomyMode } from '../stores/settings'
 import { useAuth } from '../stores/auth'
+import { notificationsSupported, permission, requestPermission } from '../lib/notify'
 
 interface Props {
   open:    boolean
@@ -33,6 +35,18 @@ function mask(value: string, prefix = 8, suffix = 4): string {
 }
 
 export function SettingsPanel({ open, onClose }: Props) {
+  const [notifyState, setNotifyState] = useState(() => permission())
+
+  useEffect(() => {
+    if (!open) return
+    setNotifyState(permission())
+  }, [open])
+
+  const enableNotifications = async () => {
+    const next = await requestPermission()
+    setNotifyState(next)
+  }
+
   const anthropicKey  = useSettings((s) => s.anthropicKey)
   const githubToken   = useSettings((s) => s.githubToken)
   const githubOrg     = useSettings((s) => s.githubOrg)
@@ -144,6 +158,31 @@ export function SettingsPanel({ open, onClose }: Props) {
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>
+        </section>
+
+        <section className="hm-drawer-section">
+          <h3 className="hm-drawer-section-title">Notifications</h3>
+          <p className="hm-drawer-help">
+            Get a desktop / iOS lock-screen notification when a background
+            task completes. Works while the dashboard tab is open. For full
+            push (closed tab), <strong>install as a PWA</strong>: on iPad
+            Safari → Share → Add to Home Screen.
+          </p>
+          {!notificationsSupported() ? (
+            <p className="hm-drawer-confirm" style={{ color: 'var(--text-muted)' }}>
+              Not supported in this browser.
+            </p>
+          ) : notifyState === 'granted' ? (
+            <p className="hm-drawer-confirm">Enabled ✓</p>
+          ) : notifyState === 'denied' ? (
+            <p className="hm-drawer-confirm" style={{ color: 'var(--error)' }}>
+              Blocked. Re-enable from your browser's site settings.
+            </p>
+          ) : (
+            <button className="hm-btn-primary" onClick={enableNotifications}>
+              Enable browser notifications
+            </button>
+          )}
         </section>
 
         <section className="hm-drawer-section">

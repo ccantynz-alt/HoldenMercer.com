@@ -12,12 +12,13 @@
  * the same.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useProjects } from '../stores/projects'
 import {
-  fetchTaskResult, listTaskRuns, setupTaskWorkflow,
+  fetchTaskResult, listTaskRuns, setupTaskWorkflow, setupCronWorkflow,
   type TaskRun,
 } from '../lib/jobs'
+import { notify, permission } from '../lib/notify'
 
 interface Props {
   projectId: string
@@ -41,6 +42,14 @@ export function Tasks({ projectId }: Props) {
   const [openRunResult, setOpenRunResult] = useState<string | null>(null)
   const [resultLoading, setResultLoading] = useState(false)
   const [secretsUrl, setSecretsUrl] = useState<string | null>(null)
+  const [cronInfo,   setCronInfo]   = useState<{ url: string; seeded: boolean } | null>(null)
+
+  // Track last-known status per run so we can fire one notification on
+  // the in_progress → completed transition without spamming on every poll.
+  const lastStatusRef = useRef<Record<number, string>>({})
+  // Skip notifying on the first poll after a project is opened (otherwise
+  // every previously-completed run notifies us all over again).
+  const initialRef = useRef(true)
 
   const repo   = project?.repo ?? null
   const branch = project?.branch ?? null
@@ -70,6 +79,32 @@ export function Tasks({ projectId }: Props) {
     return () => clearInterval(id)
   }, [runs, refresh])
 
+  // Fire notifications on in_progress → completed transitions
+  useEffect(() => {
+    if (initialRef.current) {
+      // Seed last-known statuses without notifying on the first load
+      runs.forEach((r) => { lastStatusRef.current[r.id] = r.status })
+      initialRef.current = false
+      return
+    }
+    if (permission() !== 'granted' || !project) return
+    for (const run of runs) {
+      const prev = lastStatusRef.current[run.id]
+      lastStatusRef.current[run.id] = run.status
+      if (prev && prev !== 'completed' && run.status === 'completed') {
+        const ok = run.conclusion === 'success'
+        notify({
+          title: ok
+            ? `✅ ${project.name} — task done`
+            : `❌ ${project.name} — task ${run.conclusion ?? 'failed'}`,
+          body:  run.name?.slice(0, 200),
+          url:   run.html_url,
+          tag:   `hm-task-${run.id}`,
+        })
+      }
+    }
+  }, [runs, project])
+
   if (!project) return null
 
   if (!repo) {
@@ -92,6 +127,20 @@ export function Tasks({ projectId }: Props) {
       const data = await setupTaskWorkflow(repo, branch || undefined)
       setSecretsUrl(data.secret_setup_url)
       await refresh()
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const installCron = async () => {
+    setBusy('cron')
+    setError(null)
+    setCronInfo(null)
+    try {
+      const data = await setupCronWorkflow(repo, branch || undefined)
+      setCronInfo({ url: data.schedules_url, seeded: data.schedules_file_seeded })
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -150,6 +199,11 @@ export function Tasks({ projectId }: Props) {
               {busy === 'install' ? 'Installing…' : 'Install task workflow'}
             </button>
           )}
+          {installed && (
+            <button className="hm-btn-ghost" onClick={installCron} disabled={busy !== null}>
+              {busy === 'cron' ? 'Installing…' : 'Install cron schedules'}
+            </button>
+          )}
           <button className="hm-btn-ghost" onClick={refresh} disabled={loading}>
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
@@ -157,6 +211,19 @@ export function Tasks({ projectId }: Props) {
       </header>
 
       {error && <div className="hm-memory-error">{error}</div>}
+      {cronInfo && (
+        <div className="hm-tasks-empty">
+          <strong>Cron installed.</strong>{' '}
+          The workflow will run every 15 minutes and dispatch any schedule whose
+          cron fires in window. Edit{' '}
+          <a href={cronInfo.url} target="_blank" rel="noreferrer">
+            <code>.holdenmercer/schedules.yml</code>
+          </a>{' '}
+          to add entries — or just ask the Console:{' '}
+          <em>"add a schedule that updates the README every Monday at 9am UTC"</em>.
+          {cronInfo.seeded && ' (Sample schedules.yml committed.)'}
+        </div>
+      )}
       {secretsUrl && (
         <div className="hm-tasks-empty">
           <strong>Last step:</strong> tasks need an Anthropic key in this repo.
