@@ -3588,3 +3588,39 @@ body {
   text-decoration: underline;
   word-break: break-all;
 }
+
+/* ── commit_changes file list ───────────────────────────────────────────── */
+
+.hm-commit-files {
+  list-style: none;
+  background: #0a0a0b;
+  color: #e8e6dc;
+  border-top: 1px solid #1a1a1c;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.hm-commit-file {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 0;
+}
+
+.hm-commit-action {
+  text-align: center;
+  font-weight: 700;
+}
+.hm-commit-create  .hm-commit-action { color: #b6c79b; }
+.hm-commit-update  .hm-commit-action { color: #d8b074; }
+.hm-commit-delete  .hm-commit-action { color: #ff8c8c; }
+
+.hm-commit-path { word-break: break-all; }
+.hm-commit-delete .hm-commit-path { text-decoration: line-through; opacity: 0.7; }
+
+.hm-commit-size {
+  color: #8a8a90;
+  font-size: 11px;
+}

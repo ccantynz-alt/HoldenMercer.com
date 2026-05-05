@@ -35,6 +35,7 @@ const ALL_TOOLS = [
   'search_repo_code',
   'search_past_sessions',
   'write_github_file',
+  'commit_changes',
   'delete_github_file',
   'create_github_branch',
   'setup_gate_workflow',
@@ -545,6 +546,13 @@ function ToolCallRow({
       : null
   const showContent = writeContent && call.status === 'ok'
 
+  // commit_changes gets a structured "what files changed" panel.
+  const commitFiles =
+    call.tool === 'commit_changes'
+      ? (call.input.files as Array<{ path?: string; action?: string; content?: string }> | undefined) ?? []
+      : []
+  const showCommitFiles = commitFiles.length > 0
+
   return (
     <details className={`hm-tool hm-tool-${call.status}`} open={call.status === 'running'}>
       <summary>
@@ -567,6 +575,23 @@ function ToolCallRow({
       </summary>
       {call.status === 'error' ? (
         <pre className="hm-tool-output hm-tool-error-output">{call.errorMsg}</pre>
+      ) : showCommitFiles ? (
+        <div className="hm-tool-output-wrap">
+          {call.preview && <div className="hm-tool-result">{call.preview}</div>}
+          <ul className="hm-commit-files">
+            {commitFiles.map((f, i) => (
+              <li key={`${f.path}-${i}`} className={`hm-commit-file hm-commit-${f.action ?? 'update'}`}>
+                <span className="hm-commit-action">
+                  {f.action === 'create' ? '＋' : f.action === 'delete' ? '−' : '∆'}
+                </span>
+                <span className="hm-commit-path">{f.path}</span>
+                <span className="hm-commit-size">
+                  {f.action === 'delete' ? 'delete' : `${(f.content?.length ?? 0).toLocaleString()} bytes`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : showContent ? (
         <div className="hm-tool-output-wrap">
           {call.preview && <div className="hm-tool-result">{call.preview}</div>}
@@ -691,7 +716,8 @@ function buildSystemPrompt({
     `  - list_github_dir(repo, path): list a directory in a repo.`,
     `  - search_repo_code(repo, query): keyword-search files in a repo (for "where is X?" questions).`,
     `  - search_past_sessions(repo, query): keyword-search older session memories.`,
-    `  - write_github_file(repo, path, content, commit_message): create or overwrite a file.`,
+    `  - write_github_file(repo, path, content, commit_message): create or overwrite a single file (one commit).`,
+    `  - commit_changes(repo, commit_message, files=[{path, action, content}]): ATOMIC multi-file commit. Strongly preferred over multiple write_github_file calls when a logical change touches several files.`,
     `  - delete_github_file(repo, path, commit_message): delete a file.`,
     `  - create_github_branch(repo, branch, from_ref?): create a branch.`,
     `  - setup_gate_workflow(repo): install the lint/typecheck/tests workflow.`,
@@ -732,6 +758,10 @@ function summariseInput(tool: string, input: Record<string, unknown>): string {
   if (tool === 'search_repo_code')    return `${input.repo ?? ''}  q="${input.query ?? ''}"`
   if (tool === 'search_past_sessions') return `q="${input.query ?? ''}"`
   if (tool === 'write_github_file')   return `${input.repo ?? ''}/${input.path ?? ''}  ←  ${input.commit_message ?? ''}`
+  if (tool === 'commit_changes') {
+    const files = (input.files as Array<{ path?: string }> | undefined) ?? []
+    return `${input.repo ?? ''}  ${files.length} file${files.length === 1 ? '' : 's'}  ←  ${input.commit_message ?? ''}`
+  }
   if (tool === 'delete_github_file')  return `${input.repo ?? ''}/${input.path ?? ''}  (delete)`
   if (tool === 'create_github_branch') return `${input.repo ?? ''}  branch=${input.branch ?? ''} from=${input.from_ref ?? 'default'}`
   if (tool === 'setup_gate_workflow') return `install gate workflow in ${input.repo ?? ''}`

@@ -158,10 +158,9 @@ TOOL_SCHEMAS: dict[str, dict] = {
     "write_github_file": {
         "name": "write_github_file",
         "description": (
-            "Create or overwrite a single file in a GitHub repository, producing a real commit. "
-            "Use this to make actual changes to the user's project. The whole file must be "
-            "supplied — partial edits are not supported. Always read the file first if it might "
-            "exist so your write doesn't overwrite work the user wanted to keep."
+            "Create or overwrite a SINGLE file in a GitHub repository, producing one "
+            "commit. Use this for one-off edits. Prefer `commit_changes` when touching "
+            "multiple files at once — it makes one atomic commit instead of N."
         ),
         "input_schema": {
             "type": "object",
@@ -179,6 +178,51 @@ TOOL_SCHEMAS: dict[str, dict] = {
                 },
             },
             "required": ["repo", "path", "content", "commit_message"],
+        },
+    },
+    "commit_changes": {
+        "name": "commit_changes",
+        "description": (
+            "Make ONE atomic commit that touches multiple files (creates, updates, "
+            "and/or deletes). Strongly preferred over multiple write_github_file "
+            "calls when a logical change spans more than one file — produces a clean "
+            "history (one commit per intent, not one commit per file). Uses the git "
+            "Trees API under the hood."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo": { "type": "string", "description": "Repository in 'owner/name' form." },
+                "commit_message": {
+                    "type": "string",
+                    "description": "Single commit message describing the whole change.",
+                },
+                "files": {
+                    "type": "array",
+                    "description": "List of file changes to apply atomically.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": { "type": "string", "description": "File path within the repo." },
+                            "action": {
+                                "type": "string",
+                                "enum": ["create", "update", "delete"],
+                                "description": "What to do with the file.",
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "Full UTF-8 content (required for create / update; ignored for delete).",
+                            },
+                        },
+                        "required": ["path", "action"],
+                    },
+                },
+                "branch": {
+                    "type": "string",
+                    "description": "Optional target branch. Defaults to the repo's default branch.",
+                },
+            },
+            "required": ["repo", "commit_message", "files"],
         },
     },
     "delete_github_file": {
@@ -225,6 +269,7 @@ TOOL_SCHEMAS: dict[str, dict] = {
 # autonomy modes (manual mode = read-only).
 WRITE_TOOL_NAMES: set[str] = {
     "write_github_file",
+    "commit_changes",
     "delete_github_file",
     "create_github_branch",
     "setup_gate_workflow",   # writes a workflow file
@@ -266,6 +311,14 @@ async def run_tool(
             repo=tool_input.get("repo", ""),
             path=tool_input.get("path", ""),
             content=tool_input.get("content", ""),
+            commit_message=tool_input.get("commit_message", "Update via Holden Mercer"),
+            branch=tool_input.get("branch"),
+            token=github_token,
+        )
+    if name == "commit_changes":
+        return await _commit_changes(
+            repo=tool_input.get("repo", ""),
+            files=tool_input.get("files") or [],
             commit_message=tool_input.get("commit_message", "Update via Holden Mercer"),
             branch=tool_input.get("branch"),
             token=github_token,
@@ -521,6 +574,122 @@ async def _write_github_file(
         size    = len(content.encode("utf-8"))
         action  = "updated" if existing_sha else "created"
         return f"{action} {repo}/{path} on {ref}  ({size} bytes, commit {sha[:7]})"
+
+
+# ── commit_changes (multi-file atomic commit via git Trees API) ─────────────
+
+async def _commit_changes(
+    repo: str,
+    files: list[dict],
+    commit_message: str,
+    branch: str | None,
+    token: str,
+) -> str:
+    if "/" not in repo:
+        raise ValueError("repo must be in 'owner/name' form.")
+    if not files:
+        raise ValueError("files list is required.")
+    if not token:
+        raise ValueError("No GitHub token configured.")
+
+    headers = _gh_headers(token)
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        # Resolve target branch
+        target = branch
+        if not target:
+            r = await client.get(f"{GITHUB_API}/repos/{repo}", headers=headers)
+            r.raise_for_status()
+            target = r.json().get("default_branch", "main")
+
+        # Get current ref → commit → tree
+        ref = await client.get(
+            f"{GITHUB_API}/repos/{repo}/git/refs/heads/{target}", headers=headers,
+        )
+        if ref.status_code == 404:
+            return f"[branch not found: {target}]"
+        ref.raise_for_status()
+        head_sha = ref.json()["object"]["sha"]
+
+        head_commit = await client.get(
+            f"{GITHUB_API}/repos/{repo}/git/commits/{head_sha}", headers=headers,
+        )
+        head_commit.raise_for_status()
+        base_tree_sha = head_commit.json()["tree"]["sha"]
+
+        # Build tree entries — create a blob for each create / update,
+        # null SHA for each delete.
+        tree_entries: list[dict] = []
+        creates_or_updates = 0
+        deletes            = 0
+        for f in files:
+            path   = (f.get("path") or "").lstrip("/")
+            action = (f.get("action") or "update").lower()
+            if not path:
+                return f"[error: file entry missing 'path']"
+
+            if action == "delete":
+                deletes += 1
+                tree_entries.append({
+                    "path": path, "mode": "100644", "type": "blob", "sha": None,
+                })
+                continue
+
+            content = f.get("content") or ""
+            blob = await client.post(
+                f"{GITHUB_API}/repos/{repo}/git/blobs",
+                headers=headers,
+                json={"content": content, "encoding": "utf-8"},
+            )
+            if blob.status_code >= 400:
+                return f"[error creating blob for {path}: {blob.status_code} {blob.text[:200]}]"
+            tree_entries.append({
+                "path": path, "mode": "100644", "type": "blob",
+                "sha":  blob.json()["sha"],
+            })
+            creates_or_updates += 1
+
+        # Create new tree on top of base
+        new_tree = await client.post(
+            f"{GITHUB_API}/repos/{repo}/git/trees",
+            headers=headers,
+            json={"base_tree": base_tree_sha, "tree": tree_entries},
+        )
+        if new_tree.status_code >= 400:
+            return f"[error creating tree: {new_tree.status_code} {new_tree.text[:300]}]"
+        new_tree_sha = new_tree.json()["sha"]
+
+        # Create commit pointing at new tree
+        new_commit = await client.post(
+            f"{GITHUB_API}/repos/{repo}/git/commits",
+            headers=headers,
+            json={
+                "message": commit_message,
+                "tree":    new_tree_sha,
+                "parents": [head_sha],
+            },
+        )
+        if new_commit.status_code >= 400:
+            return f"[error creating commit: {new_commit.status_code} {new_commit.text[:300]}]"
+        new_sha = new_commit.json()["sha"]
+
+        # Fast-forward the branch ref
+        update = await client.patch(
+            f"{GITHUB_API}/repos/{repo}/git/refs/heads/{target}",
+            headers=headers,
+            json={"sha": new_sha, "force": False},
+        )
+        if update.status_code >= 400:
+            return (
+                f"[error updating ref {target}: {update.status_code} {update.text[:300]}]\n"
+                f"  (commit {new_sha[:7]} was created but ref couldn't be updated — "
+                "likely a fast-forward conflict; try again)"
+            )
+
+    return (
+        f"committed {creates_or_updates} write(s) + {deletes} delete(s) to "
+        f"{repo}@{target} as {new_sha[:7]} — \"{commit_message}\""
+    )
 
 
 # ── delete_github_file ──────────────────────────────────────────────────────

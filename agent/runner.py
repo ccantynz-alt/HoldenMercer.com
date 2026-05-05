@@ -93,7 +93,10 @@ TOOLS: list[dict] = [
     },
     {
         "name": "write_file",
-        "description": "Create or overwrite a file in this repository (real commit). Send the FULL content.",
+        "description": (
+            "Create or overwrite a SINGLE file (one commit). Prefer commit_changes "
+            "for multi-file edits."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -103,6 +106,33 @@ TOOLS: list[dict] = [
                 "branch":         {"type": "string"},
             },
             "required": ["path", "content", "commit_message"],
+        },
+    },
+    {
+        "name": "commit_changes",
+        "description": (
+            "Make ONE atomic commit touching multiple files. Strongly preferred over "
+            "calling write_file many times when a logical change spans multiple files."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "commit_message": {"type": "string"},
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path":    {"type": "string"},
+                            "action":  {"type": "string", "enum": ["create", "update", "delete"]},
+                            "content": {"type": "string"},
+                        },
+                        "required": ["path", "action"],
+                    },
+                },
+                "branch": {"type": "string"},
+            },
+            "required": ["commit_message", "files"],
         },
     },
     {
@@ -231,6 +261,80 @@ def tool_write_file(path: str, content: str, commit_message: str, branch: str | 
     return f"{action} {path} ({len(content)} bytes, commit {sha[:7]})"
 
 
+def tool_commit_changes(commit_message: str, files: list[dict], branch: str | None = None) -> str:
+    branch = branch or BRANCH
+    if not files:
+        return "[no files supplied]"
+
+    # Resolve target branch
+    target = branch
+    if not target:
+        r = httpx.get(f"{GH_API}/repos/{REPO}", headers=GH_HEADERS, timeout=20.0)
+        r.raise_for_status()
+        target = r.json().get("default_branch", "main")
+
+    # Get head ref + base tree
+    ref = httpx.get(f"{GH_API}/repos/{REPO}/git/refs/heads/{target}", headers=GH_HEADERS, timeout=20.0)
+    if ref.status_code == 404:
+        return f"[branch not found: {target}]"
+    ref.raise_for_status()
+    head_sha = ref.json()["object"]["sha"]
+    head_commit = httpx.get(f"{GH_API}/repos/{REPO}/git/commits/{head_sha}", headers=GH_HEADERS, timeout=20.0)
+    head_commit.raise_for_status()
+    base_tree = head_commit.json()["tree"]["sha"]
+
+    # Build tree entries
+    tree_entries: list[dict] = []
+    writes = deletes = 0
+    for f in files:
+        path   = (f.get("path") or "").lstrip("/")
+        action = (f.get("action") or "update").lower()
+        if not path:
+            return "[error: file entry missing 'path']"
+        if action == "delete":
+            deletes += 1
+            tree_entries.append({"path": path, "mode": "100644", "type": "blob", "sha": None})
+            continue
+        content = f.get("content") or ""
+        blob = httpx.post(
+            f"{GH_API}/repos/{REPO}/git/blobs",
+            headers=GH_HEADERS, timeout=30.0,
+            json={"content": content, "encoding": "utf-8"},
+        )
+        if blob.status_code >= 400:
+            return f"[blob error for {path}: {blob.status_code}]"
+        tree_entries.append({
+            "path": path, "mode": "100644", "type": "blob", "sha": blob.json()["sha"],
+        })
+        writes += 1
+
+    new_tree = httpx.post(
+        f"{GH_API}/repos/{REPO}/git/trees",
+        headers=GH_HEADERS, timeout=30.0,
+        json={"base_tree": base_tree, "tree": tree_entries},
+    )
+    if new_tree.status_code >= 400:
+        return f"[tree error: {new_tree.status_code} {new_tree.text[:200]}]"
+
+    commit = httpx.post(
+        f"{GH_API}/repos/{REPO}/git/commits",
+        headers=GH_HEADERS, timeout=30.0,
+        json={"message": commit_message, "tree": new_tree.json()["sha"], "parents": [head_sha]},
+    )
+    if commit.status_code >= 400:
+        return f"[commit error: {commit.status_code} {commit.text[:200]}]"
+    new_sha = commit.json()["sha"]
+
+    update = httpx.patch(
+        f"{GH_API}/repos/{REPO}/git/refs/heads/{target}",
+        headers=GH_HEADERS, timeout=20.0,
+        json={"sha": new_sha, "force": False},
+    )
+    if update.status_code >= 400:
+        return f"[ref update error: {update.status_code} {update.text[:200]}]"
+    return f"committed {writes} write(s) + {deletes} delete(s) to {target} as {new_sha[:7]} — \"{commit_message}\""
+
+
 def tool_delete_file(path: str, commit_message: str, branch: str | None = None) -> str:
     branch = branch or BRANCH
     params = {"ref": branch} if branch else None
@@ -289,6 +393,7 @@ def run_tool(name: str, inp: dict) -> str:
         if name == "read_file":      return tool_read_file(inp.get("path", ""), inp.get("ref"))
         if name == "list_dir":       return tool_list_dir(inp.get("path", ""), inp.get("ref"))
         if name == "write_file":     return tool_write_file(inp["path"], inp["content"], inp["commit_message"], inp.get("branch"))
+        if name == "commit_changes": return tool_commit_changes(inp["commit_message"], inp.get("files") or [], inp.get("branch"))
         if name == "delete_file":    return tool_delete_file(inp["path"], inp["commit_message"], inp.get("branch"))
         if name == "web_fetch":      return tool_web_fetch(inp.get("url", ""))
         if name == "trigger_gate":   return tool_trigger_gate(inp.get("branch"))
@@ -311,7 +416,10 @@ once when finished.
 
 Tools:
   - read_file(path), list_dir(path) — explore the repo
-  - write_file(path, content, commit_message) — make changes (full content; no patches)
+  - write_file(path, content, commit_message) — single-file commit
+  - commit_changes(commit_message, files=[{path, action, content}]) — ATOMIC multi-file
+    commit (preferred over multiple write_file calls when a logical change touches
+    several files; one commit per intent, not one per file)
   - delete_file(path, commit_message) — remove files (sparingly)
   - web_fetch(url) — pull external context
   - trigger_gate() — fire the lint/typecheck/tests workflow after substantial changes
