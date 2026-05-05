@@ -3634,3 +3634,108 @@ body {
 .hm-msg-agent-architect .hm-msg-role { color: #8a6dd1; }
 .hm-msg-agent-coder     .hm-msg-role { color: var(--accent-b-deep); }
 .hm-msg-agent-reviewer  .hm-msg-role { color: #6c8a4a; }
+
+/* ── Multi-pane (dockable) layout ───────────────────────────────────────── */
+
+.hm-tab-body-split {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  height: 100%;
+  min-height: 0;
+}
+
+.hm-tab-body-split > .hm-pane-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+  padding: 24px 32px;
+}
+
+.hm-pane-docked {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg-surface);
+  min-width: 280px;
+  max-width: 960px;
+  overflow: hidden;
+}
+
+.hm-pane-docked-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-base);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.hm-pane-docked-title {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+}
+
+.hm-pane-docked-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 16px 18px;
+  min-height: 0;
+}
+
+.hm-resize-handle {
+  flex: 0 0 6px;
+  cursor: col-resize;
+  background: var(--border);
+  position: relative;
+  transition: background 120ms ease;
+  touch-action: none;
+}
+.hm-resize-handle::after {
+  content: '';
+  position: absolute;
+  inset: 0 -3px;             /* generous hit target */
+}
+.hm-resize-handle:hover,
+.hm-resize-handle:active {
+  background: var(--accent-b);
+}
+
+/* Per-tab dock toggles in the tab strip */
+
+.hm-tab-wrap {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: -1px;
+}
+
+.hm-tab-dock {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0 4px;
+  font-size: 14px;
+  line-height: 1;
+  transition: color var(--transition);
+}
+.hm-tab-dock:hover    { color: var(--accent-b-deep); }
+.hm-tab-dock.is-docked { color: var(--accent-b-deep); }
+
+/* On narrow viewports the dock toggles disappear (handled via JS already
+ * because we don't render the docked pane below the breakpoint, but the
+ * toggles themselves are noisy on small tabs strips) */
+@media (max-width: 1099px) {
+  .hm-tab-dock { display: none; }
+  .hm-pane-docked, .hm-resize-handle { display: none; }
+  .hm-tab-body-split { display: block; padding: 16px 18px; }
+  .hm-tab-body-split > .hm-pane-main { padding: 0; }
+}
