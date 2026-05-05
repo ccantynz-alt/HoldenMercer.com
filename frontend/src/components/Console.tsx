@@ -862,7 +862,9 @@ function buildSystemPrompt({
   if (autonomy === 'manual') {
     parts.push(`\nAutonomy: MANUAL — write tools are disabled. Plan and explain only. The user will apply changes themselves.`)
   } else if (autonomy === 'smart') {
-    parts.push(`\nAutonomy: SMART PAUSE — you can write files and create branches. Pause to confirm with the user before destructive ops (deleting files, large refactors), and before architecture decisions where multiple valid approaches exist.`)
+    parts.push(
+      `\nAutonomy: SMART-PAUSE — you can write files, commit, and create branches. Destructive ops (delete_github_file) are auto-refused by the runtime; if you genuinely need to delete a file, ASK the user instead of calling the tool. Before architectural decisions where multiple valid approaches exist (new dep, new framework, file > 500 lines), pause and ask.`
+    )
   } else {
     parts.push(`\nAutonomy: FULL AUTO — you have full write access. Make sensible default choices and keep going. The user will review the commits afterwards.`)
   }

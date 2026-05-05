@@ -196,6 +196,7 @@ async def _run_phase(
                 output = await run_tool(
                     name=tu["name"], tool_input=tu["input"],
                     github_token=github_token, github_org=github_org,
+                    autonomy=autonomy,
                 )
                 yield ("tool_use_result", {"id": tu["id"], "output": output[:4000]})
                 tool_results.append({"type": "tool_result", "tool_use_id": tu["id"], "content": output})

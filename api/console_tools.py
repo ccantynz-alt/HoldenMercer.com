@@ -276,6 +276,13 @@ WRITE_TOOL_NAMES: set[str] = {
     "run_gate",              # mutates the actions queue
 }
 
+# Tools that delete or otherwise can't be reversed automatically. Smart-pause
+# autonomy refuses these unless the user explicitly switches to full-auto.
+# Manual mode strips them entirely (via WRITE_TOOL_NAMES).
+DESTRUCTIVE_TOOL_NAMES: set[str] = {
+    "delete_github_file",
+}
+
 
 def _all_tool_schemas() -> dict[str, dict]:
     """Combined view of read/write tools + gate tools, for backwards compat."""
@@ -290,8 +297,24 @@ async def run_tool(
     tool_input: dict,
     github_token: str,
     github_org: str,
+    autonomy: str = "auto",
 ) -> str:
-    """Run a tool by name. Returns plain text Claude can consume."""
+    """Run a tool by name. Returns plain text Claude can consume.
+
+    Smart-pause guardrails: in autonomy='smart', destructive ops (delete_file)
+    are refused with a clear message instead of executed. The agent gets the
+    refusal as the tool result and can either rephrase, ask the user, or
+    propose a safer alternative.
+    """
+    if autonomy == "smart" and name in DESTRUCTIVE_TOOL_NAMES:
+        return (
+            f"[SMART-PAUSE: refused to call {name} with input {tool_input!r} — "
+            f"this is a destructive operation. Smart-pause autonomy blocks "
+            f"destructive ops by default to keep the user's work safe. If the "
+            f"user explicitly asked for this, suggest they switch autonomy to "
+            f"'auto' in Settings, or propose a non-destructive alternative.]"
+        )
+
     # Gate tools live in their own module to keep this file from sprawling.
     from api.gate_tools import GATE_TOOL_NAMES, run_gate_tool
     if name in GATE_TOOL_NAMES:

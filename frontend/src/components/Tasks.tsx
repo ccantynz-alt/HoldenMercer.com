@@ -12,12 +12,13 @@
  * the same.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useProjects } from '../stores/projects'
 import {
   fetchTaskResult, listTaskRuns, setupTaskWorkflow,
   type TaskRun,
 } from '../lib/jobs'
+import { notify, permission } from '../lib/notify'
 
 interface Props {
   projectId: string
@@ -41,6 +42,13 @@ export function Tasks({ projectId }: Props) {
   const [openRunResult, setOpenRunResult] = useState<string | null>(null)
   const [resultLoading, setResultLoading] = useState(false)
   const [secretsUrl, setSecretsUrl] = useState<string | null>(null)
+
+  // Track last-known status per run so we can fire one notification on
+  // the in_progress → completed transition without spamming on every poll.
+  const lastStatusRef = useRef<Record<number, string>>({})
+  // Skip notifying on the first poll after a project is opened (otherwise
+  // every previously-completed run notifies us all over again).
+  const initialRef = useRef(true)
 
   const repo   = project?.repo ?? null
   const branch = project?.branch ?? null
@@ -69,6 +77,32 @@ export function Tasks({ projectId }: Props) {
     const id = setInterval(refresh, 10_000)
     return () => clearInterval(id)
   }, [runs, refresh])
+
+  // Fire notifications on in_progress → completed transitions
+  useEffect(() => {
+    if (initialRef.current) {
+      // Seed last-known statuses without notifying on the first load
+      runs.forEach((r) => { lastStatusRef.current[r.id] = r.status })
+      initialRef.current = false
+      return
+    }
+    if (permission() !== 'granted' || !project) return
+    for (const run of runs) {
+      const prev = lastStatusRef.current[run.id]
+      lastStatusRef.current[run.id] = run.status
+      if (prev && prev !== 'completed' && run.status === 'completed') {
+        const ok = run.conclusion === 'success'
+        notify({
+          title: ok
+            ? `✅ ${project.name} — task done`
+            : `❌ ${project.name} — task ${run.conclusion ?? 'failed'}`,
+          body:  run.name?.slice(0, 200),
+          url:   run.html_url,
+          tag:   `hm-task-${run.id}`,
+        })
+      }
+    }
+  }, [runs, project])
 
   if (!project) return null
 
