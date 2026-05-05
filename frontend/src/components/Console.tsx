@@ -19,7 +19,11 @@ import {
 import { useProjects } from '../stores/projects'
 import { useSettings } from '../stores/settings'
 import { useAuth } from '../stores/auth'
-import { listDir, readFile, writeFile } from '../lib/repo'
+import {
+  listDir, readFile, writeFile,
+  recentCommits, openPullRequests, inProgressRuns, readActiveWork,
+  type RecentCommit, type OpenPR, type InProgressRun, type ActiveWorkManifest,
+} from '../lib/repo'
 import { dispatchTask } from '../lib/jobs'
 
 // Markdown drags in react-markdown + highlight.js (~350 KB minified). Defer it
@@ -39,6 +43,9 @@ const ALL_TOOLS = [
   'search_past_sessions',
   'search_my_repos',
   'search_my_sessions',
+  'check_recent_activity',
+  'claim_work',
+  'release_work',
   'write_github_file',
   'commit_changes',
   'delete_github_file',
@@ -69,6 +76,12 @@ export function Console({ projectId }: Props) {
   const [streaming, setStreaming] = useState(false)
   const [error,    setError]    = useState<string | null>(null)
   const [memorySummaries, setMemorySummaries] = useState<string[]>([])
+  const [preflight, setPreflight] = useState<{
+    commits: RecentCommit[]
+    prs:     OpenPR[]
+    runs:    InProgressRun[]
+    active:  ActiveWorkManifest
+  } | null>(null)
   const abortRef  = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -115,6 +128,33 @@ export function Console({ projectId }: Props) {
     return () => { cancelled = true }
   }, [project?.repo, project?.branch])
 
+  // Auto-load the pre-flight briefing — recent commits, open PRs, in-flight
+  // workflow runs, active-work manifest. Stops the agent from branching from
+  // stale state and colliding with another in-flight branch.
+  useEffect(() => {
+    if (!project?.repo) {
+      setPreflight(null)
+      return
+    }
+    const repo   = project.repo
+    const branch = project.branch || null
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [commits, prs, runs, active] = await Promise.all([
+          recentCommits(repo, branch, 10),
+          openPullRequests(repo, 10),
+          inProgressRuns(repo, 5),
+          readActiveWork(repo, branch || undefined),
+        ])
+        if (!cancelled) setPreflight({ commits, prs, runs, active })
+      } catch {
+        if (!cancelled) setPreflight(null)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [project?.repo, project?.branch])
+
   const ready = useMemo(() => Boolean(settings.anthropicKey && project), [settings.anthropicKey, project])
 
   if (!project) return null
@@ -154,6 +194,7 @@ export function Console({ projectId }: Props) {
       branch:      project.branch,
       autonomy:    settings.autonomy,
       memories:    memorySummaries,
+      preflight,
     })
     const apiMessages = [...messages, userMessage].map(toApiMessage)
 
@@ -521,6 +562,7 @@ export function Console({ projectId }: Props) {
             hasRepo={Boolean(project.repo)}
             autonomy={settings.autonomy}
             memoriesLoaded={memorySummaries.length}
+            preflight={preflight}
           />
         ) : (
           messages.map((m) => <MessageRow key={m.id} message={m} repo={project.repo} branch={project.branch} />)
@@ -771,7 +813,7 @@ function ToolCallRow({
 }
 
 function ConsoleEmpty({
-  ready, hasKey, hasGithub, hasRepo, autonomy, memoriesLoaded,
+  ready, hasKey, hasGithub, hasRepo, autonomy, memoriesLoaded, preflight,
 }: {
   ready: boolean
   hasKey: boolean
@@ -779,6 +821,7 @@ function ConsoleEmpty({
   hasRepo: boolean
   autonomy: string
   memoriesLoaded: number
+  preflight: { commits: RecentCommit[]; prs: OpenPR[]; runs: InProgressRun[]; active: ActiveWorkManifest } | null
 }) {
   return (
     <div className="hm-console-empty">
@@ -813,6 +856,16 @@ function ConsoleEmpty({
           Ask <em>"where did we leave off?"</em> to pick up.
         </p>
       )}
+      {preflight && (preflight.commits.length || preflight.prs.length || preflight.runs.length || preflight.active.active.length) ? (
+        <p className="hm-console-memory-pill">
+          📌 Pre-flight loaded:
+          {' '}{preflight.commits.length} recent commit{preflight.commits.length === 1 ? '' : 's'},
+          {' '}{preflight.prs.length} open PR{preflight.prs.length === 1 ? '' : 's'},
+          {' '}{preflight.runs.length} in-flight run{preflight.runs.length === 1 ? '' : 's'},
+          {' '}{preflight.active.active.length} claimed branch{preflight.active.active.length === 1 ? '' : 'es'}.
+          {' '}Claude reads this before editing — no stale-state collisions.
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -820,7 +873,7 @@ function ConsoleEmpty({
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function buildSystemPrompt({
-  name, description, repo, branch, autonomy, memories,
+  name, description, repo, branch, autonomy, memories, preflight,
 }: {
   name:        string
   description: string
@@ -828,6 +881,12 @@ function buildSystemPrompt({
   branch:      string | null
   autonomy:    string
   memories:    string[]
+  preflight:   {
+    commits: RecentCommit[]
+    prs:     OpenPR[]
+    runs:    InProgressRun[]
+    active:  ActiveWorkManifest
+  } | null
 }): string {
   const parts: string[] = [
     `You are the build agent for the project "${name}". You're running inside Holden Mercer — a console for power users to build with Claude.`,
@@ -863,6 +922,56 @@ function buildSystemPrompt({
     )
   }
 
+  if (preflight) {
+    const { commits, prs, runs, active } = preflight
+    const activeList = active?.active ?? []
+    const lines: string[] = [
+      `\n--- Pre-flight briefing (READ BEFORE EDITING — current state of the repo) ---`,
+    ]
+    if (commits.length) {
+      lines.push(`\nLast ${commits.length} commits on the default branch:`)
+      commits.forEach((c) =>
+        lines.push(`  ${c.sha}  ${c.date}  ${c.author ?? '?'}: ${c.message}`),
+      )
+    } else {
+      lines.push(`\nNo recent commits visible (or repo is empty / private).`)
+    }
+    lines.push(`\nOpen pull requests (${prs.length}):`)
+    if (prs.length) {
+      prs.forEach((p) =>
+        lines.push(
+          `  #${p.number}  ${p.head} → ${p.base}  by ${p.author ?? '?'}: ${p.title}`,
+        ),
+      )
+    } else {
+      lines.push(`  (none)`)
+    }
+    lines.push(`\nIn-progress workflow runs (${runs.length}):`)
+    if (runs.length) {
+      runs.forEach((r) =>
+        lines.push(`  run ${r.id} · ${r.workflow} · ${r.branch} · ${r.status}`),
+      )
+    } else {
+      lines.push(`  (none)`)
+    }
+    lines.push(`\nActive-work manifest (${activeList.length} branches claimed):`)
+    if (activeList.length) {
+      activeList.forEach((c) => {
+        const scope = (c.scope ?? []).slice(0, 6).join(', ') || '(no scope listed)'
+        lines.push(`  ${c.branch}  agent=${c.agent}  intent: ${c.intent}`)
+        lines.push(`    scope: ${scope}`)
+      })
+    } else {
+      lines.push(`  (no in-flight branches claimed)`)
+    }
+    lines.push(
+      `\n--- end of pre-flight ---`,
+      `\nIf your planned changes overlap with files in an open PR's branch or another agent's claimed scope, BRANCH FROM that branch instead of the default — or coordinate by handing off the work to that PR. Never branch from stale state.`,
+      `\nThe Console refreshes this briefing every time the user opens a project, but if the conversation has been running for a while, call \`check_recent_activity\` to refresh before more edits.`,
+    )
+    parts.push(lines.join('\n'))
+  }
+
   if (autonomy === 'manual') {
     parts.push(`\nAutonomy: MANUAL — write tools are disabled. Plan and explain only. The user will apply changes themselves.`)
   } else if (autonomy === 'smart') {
@@ -883,6 +992,9 @@ function buildSystemPrompt({
     `  - search_past_sessions(repo, query): keyword-search older session memories in this project.`,
     `  - search_my_repos(query): keyword-search file contents across ALL the user's repos. Use when the user references work in a different project ("how did I do auth in another project?").`,
     `  - search_my_sessions(query): keyword-search session memories across ALL projects. Use when you don't know which project a past task lived in.`,
+    `  - check_recent_activity(repo): refresh the pre-flight briefing — last commits, open PRs, in-progress workflow runs, active-work manifest. Call this if you've been working for a while and want to verify nothing changed under you.`,
+    `  - claim_work(repo, branch, intent, scope): record your claim in .holdenmercer/active-work.json so other agent sessions don't collide. Call RIGHT AFTER create_github_branch and BEFORE editing.`,
+    `  - release_work(repo, branch): clear your claim once the branch has merged or been abandoned.`,
     `  - write_github_file(repo, path, content, commit_message, branch?): single-file commit.`,
     `  - commit_changes(repo, commit_message, files=[{path, action, content}], branch?): ATOMIC multi-file commit. Strongly preferred over multiple write_github_file calls when a logical change touches several files.`,
     `  - delete_github_file(repo, path, commit_message, branch?): delete a file.`,
@@ -895,11 +1007,14 @@ function buildSystemPrompt({
     `  - read_gate_logs(repo, run_id): tail the failure logs of a run.`,
     `\n──── DOCTRINE: don't break what's working ────`,
     `\nThe most expensive failure mode in AI building is a new session breaking what an earlier session got working. To prevent that, the workflow for any non-trivial change is:`,
-    `\n  1. create_github_branch(repo, "claude/<short-task-name>")  — work on a feature branch, NEVER directly on the default branch.`,
-    `  2. Make your edits via commit_changes / write_github_file, all targeting your working branch.`,
-    `  3. run_gate(repo, branch=<your branch>) — wait until it goes ✅. If it fails, read_gate_logs, fix, repeat.`,
-    `  4. open_pull_request(repo, head=<your branch>, title=…, body=…) — record the PR number it returns.`,
-    `  5. merge_pull_request(repo, pull_number=<number>) — this REFUSES TO MERGE unless the gate is ✅ on the head SHA. That refusal is the regression guarantee: nothing red lands on main.`,
+    `\n  0. PRE-FLIGHT — review the pre-flight briefing above (already injected). If a planned file is in an open PR's diff or another agent's claimed scope, branch from THAT branch, not the default. Don't race.`,
+    `  1. create_github_branch(repo, "claude/<short-task-name>")  — work on a feature branch, NEVER directly on the default branch.`,
+    `  2. claim_work(repo, branch, intent, scope) — record your claim BEFORE editing so concurrent agents see it.`,
+    `  3. Make your edits via commit_changes / write_github_file, all targeting your working branch.`,
+    `  4. run_gate(repo, branch=<your branch>) — wait until it goes ✅. If it fails, read_gate_logs, fix, repeat.`,
+    `  5. open_pull_request(repo, head=<your branch>, title=…, body=…) — record the PR number it returns.`,
+    `  6. merge_pull_request(repo, pull_number=<number>) — this REFUSES TO MERGE unless the gate is ✅ on the head SHA. That refusal is the regression guarantee: nothing red lands on main.`,
+    `  7. release_work(repo, branch) — clear your manifest entry now that the work has shipped.`,
     `\nAlways write the FULL file content when using write_github_file — partial edits aren't supported.`,
     `\nWHENEVER you write production code, also write or update its test in the same commit. The Holden Mercer gate runs lint + typecheck + tests on every commit; untested code is unprotected. If the project doesn't have a test setup yet, propose a minimal one (vitest for Node, pytest for Python) before adding feature code. Treat tests as load-bearing, not as an afterthought.`,
     `\nIf .holdenmercer/invariants.md exists in the repo, read_github_file IT FIRST. It lists things that MUST NOT break (auth, billing, the homepage, etc.). Treat every item as a hard constraint on every change you make.`,
@@ -937,6 +1052,9 @@ function summariseInput(tool: string, input: Record<string, unknown>): string {
   if (tool === 'search_past_sessions') return `q="${input.query ?? ''}"`
   if (tool === 'search_my_repos')      return `all repos · q="${input.query ?? ''}"`
   if (tool === 'search_my_sessions')   return `all sessions · q="${input.query ?? ''}"`
+  if (tool === 'check_recent_activity') return `${input.repo ?? ''}  preflight refresh`
+  if (tool === 'claim_work')           return `${input.repo ?? ''}  ${input.branch ?? ''}  ←  ${input.intent ?? ''}`
+  if (tool === 'release_work')         return `${input.repo ?? ''}  ${input.branch ?? ''}  released`
   if (tool === 'write_github_file')   return `${input.repo ?? ''}/${input.path ?? ''}  ←  ${input.commit_message ?? ''}`
   if (tool === 'commit_changes') {
     const files = (input.files as Array<{ path?: string }> | undefined) ?? []

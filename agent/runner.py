@@ -168,6 +168,40 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "check_recent_activity",
+        "description": (
+            "Snapshot of recent commits, open PRs, in-progress workflow runs, and the "
+            "active-work manifest. Run this before editing if the agent run has been going "
+            "long enough that the world might have changed underneath."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "claim_work",
+        "description": (
+            "Record this branch in .holdenmercer/active-work.json so concurrent agents see "
+            "the claim and avoid colliding. Call right after creating the branch and before editing."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "branch": {"type": "string"},
+                "intent": {"type": "string"},
+                "scope":  {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["branch", "intent"],
+        },
+    },
+    {
+        "name": "release_work",
+        "description": "Clear this branch's entry from the active-work manifest after merge or abandonment.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"branch": {"type": "string"}},
+            "required": ["branch"],
+        },
+    },
+    {
         "name": "delete_file",
         "description": "Delete a file from this repository (real commit). Use sparingly.",
         "input_schema": {
@@ -485,6 +519,137 @@ def tool_merge_pull_request(pull_number: int, merge_method: str = "squash") -> s
     return f"merged PR #{pull_number} ({head_ref} → {base_ref}) via {merge_method} — gate ✅ on {head_sha[:7]}"
 
 
+_ACTIVE_WORK_PATH = ".holdenmercer/active-work.json"
+
+
+def tool_check_recent_activity() -> str:
+    repo_info = httpx.get(f"{GH_API}/repos/{REPO}", headers=GH_HEADERS, timeout=20.0)
+    repo_info.raise_for_status()
+    default_branch = repo_info.json().get("default_branch", "main")
+
+    commits = httpx.get(
+        f"{GH_API}/repos/{REPO}/commits",
+        headers=GH_HEADERS, timeout=20.0,
+        params={"sha": default_branch, "per_page": 10},
+    )
+    prs = httpx.get(
+        f"{GH_API}/repos/{REPO}/pulls",
+        headers=GH_HEADERS, timeout=20.0,
+        params={"state": "open", "per_page": 10, "sort": "updated", "direction": "desc"},
+    )
+    runs = httpx.get(
+        f"{GH_API}/repos/{REPO}/actions/runs",
+        headers=GH_HEADERS, timeout=20.0,
+        params={"status": "in_progress", "per_page": 10},
+    )
+
+    out = [f"Pre-flight briefing for {REPO} (default branch: {default_branch})", ""]
+    if commits.status_code < 400:
+        items = commits.json() or []
+        out.append(f"## Last {len(items)} commits on {default_branch}")
+        for c in items:
+            sha = (c.get("sha") or "")[:7]
+            msg = (c.get("commit", {}).get("message") or "").split("\n", 1)[0]
+            author = c.get("commit", {}).get("author", {}).get("name") \
+                or (c.get("author") or {}).get("login") or "?"
+            date = c.get("commit", {}).get("author", {}).get("date") or ""
+            out.append(f"  {sha}  {date}  {author}: {msg}")
+        out.append("")
+    if prs.status_code < 400:
+        items = prs.json() or []
+        out.append(f"## Open PRs ({len(items)})")
+        if not items: out.append("  (none)")
+        for p in items:
+            out.append(
+                f"  #{p.get('number')}  {p.get('head', {}).get('ref')} → "
+                f"{p.get('base', {}).get('ref')}  by {(p.get('user') or {}).get('login', '?')}: "
+                f"{p.get('title')}"
+            )
+        out.append("")
+    if runs.status_code < 400:
+        items = runs.json().get("workflow_runs", []) or []
+        out.append(f"## In-progress workflow runs ({len(items)})")
+        if not items: out.append("  (none)")
+        for r in items:
+            out.append(f"  run {r.get('id')}  {r.get('name')}  on {r.get('head_branch')}  ({r.get('status')})")
+        out.append("")
+
+    manifest = _read_active_work_manifest(default_branch)
+    out.append(f"## Active-work manifest ({len(manifest.get('active', []))} entries)")
+    if not manifest.get("active"):
+        out.append("  (no in-flight branches claimed)")
+    else:
+        for c in manifest["active"]:
+            paths = ", ".join((c.get("scope") or [])[:6]) or "(no scope listed)"
+            out.append(f"  {c.get('branch')}  agent={c.get('agent', '?')}")
+            out.append(f"    intent: {c.get('intent', '')}")
+            out.append(f"    scope:  {paths}")
+    return "\n".join(out)
+
+
+def _read_active_work_manifest(branch: str | None = None) -> dict:
+    headers = {**GH_HEADERS, "Accept": "application/vnd.github.raw"}
+    params  = {"ref": branch} if branch else None
+    r = httpx.get(
+        f"{GH_API}/repos/{REPO}/contents/{_ACTIVE_WORK_PATH}",
+        headers=headers, params=params, timeout=20.0,
+    )
+    if r.status_code != 200:
+        return {"version": 1, "active": []}
+    try:
+        data = json.loads(r.text)
+    except Exception:
+        return {"version": 1, "active": []}
+    if not isinstance(data, dict) or not isinstance(data.get("active"), list):
+        return {"version": 1, "active": []}
+    data.setdefault("version", 1)
+    return data
+
+
+def tool_claim_work(branch: str, intent: str, scope: list[str] | None = None) -> str:
+    if not branch or not intent:
+        return "[error: branch + intent required]"
+    repo_info = httpx.get(f"{GH_API}/repos/{REPO}", headers=GH_HEADERS, timeout=20.0)
+    repo_info.raise_for_status()
+    default_branch = repo_info.json().get("default_branch", "main")
+
+    manifest = _read_active_work_manifest(default_branch)
+    manifest["active"] = [c for c in manifest["active"] if c.get("branch") != branch]
+    manifest["active"].insert(0, {
+        "branch":    branch,
+        "agent":     f"task:{TASK_ID}",
+        "scope":     list(scope or []),
+        "startedAt": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        "intent":    intent[:240],
+    })
+    body = json.dumps(manifest, indent=2) + "\n"
+    return tool_write_file(
+        _ACTIVE_WORK_PATH, body,
+        f"chore(active-work): claim {branch}",
+        branch=default_branch,
+    )
+
+
+def tool_release_work(branch: str) -> str:
+    if not branch:
+        return "[error: branch required]"
+    repo_info = httpx.get(f"{GH_API}/repos/{REPO}", headers=GH_HEADERS, timeout=20.0)
+    repo_info.raise_for_status()
+    default_branch = repo_info.json().get("default_branch", "main")
+
+    manifest = _read_active_work_manifest(default_branch)
+    before = len(manifest["active"])
+    manifest["active"] = [c for c in manifest["active"] if c.get("branch") != branch]
+    if len(manifest["active"]) == before:
+        return f"[no claim found for {branch}]"
+    body = json.dumps(manifest, indent=2) + "\n"
+    return tool_write_file(
+        _ACTIVE_WORK_PATH, body,
+        f"chore(active-work): release {branch}",
+        branch=default_branch,
+    )
+
+
 def tool_report_result(summary: str, success: bool) -> str:
     raise Done(summary=summary, success=success)
 
@@ -500,6 +665,9 @@ def run_tool(name: str, inp: dict) -> str:
         if name == "trigger_gate":   return tool_trigger_gate(inp.get("branch"))
         if name == "open_pull_request":  return tool_open_pull_request(inp.get("head", ""), inp.get("title", ""), inp.get("body", ""), inp.get("base"))
         if name == "merge_pull_request": return tool_merge_pull_request(int(inp.get("pull_number") or 0), inp.get("merge_method") or "squash")
+        if name == "check_recent_activity": return tool_check_recent_activity()
+        if name == "claim_work":         return tool_claim_work(inp.get("branch", ""), inp.get("intent", ""), inp.get("scope") or [])
+        if name == "release_work":       return tool_release_work(inp.get("branch", ""))
         if name == "report_result":  return tool_report_result(inp["summary"], bool(inp.get("success", True)))
         return f"[unknown tool: {name}]"
     except Done:
@@ -533,15 +701,19 @@ Tools:
     summary + a success boolean.
 
 DOCTRINE — don't break what's working:
+  0. PRE-FLIGHT FIRST: call check_recent_activity() to snapshot recent commits,
+     open PRs, in-progress runs, and the active-work manifest. If a planned file
+     is in another open PR's diff or another agent's claimed scope, branch from
+     THAT branch — don't race.
   1. Work on a feature branch named `claude/<short-task>` — NEVER commit directly
-     to the default branch. If you didn't create one yet, do it now via
-     write_file (with branch=…) or by including branch in commit_changes.
-  2. Make your edits — atomic commits via commit_changes when multi-file.
-  3. trigger_gate() with branch=<your branch>. Wait for completion via the
-     workflow run page; if it fails, fix on the branch + trigger again.
-  4. open_pull_request(head=<your branch>, title=…) — record the PR number.
-  5. merge_pull_request(pull_number=<number>) — refuses if gate isn't green.
-     Once it merges, your work is on main + main is provably still green.
+     to the default branch.
+  2. claim_work(branch, intent, scope) — record your claim BEFORE editing so
+     concurrent agents see it.
+  3. Make your edits — atomic commits via commit_changes when multi-file.
+  4. trigger_gate() with branch=<your branch>. If it fails, fix + retry.
+  5. open_pull_request(head=<your branch>, title=…) — record the PR number.
+  6. merge_pull_request(pull_number=<number>) — refuses if gate isn't green.
+  7. release_work(branch) — clear your manifest entry now that it's shipped.
 
 If `.holdenmercer/invariants.md` exists in the repo, READ IT FIRST. It lists
 things that must not break. Treat each item as a hard constraint.
