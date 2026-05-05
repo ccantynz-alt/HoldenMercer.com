@@ -45,6 +45,12 @@ export async function setupTaskWorkflow(repo: string, branch?: string): Promise<
   return post('/api/jobs/setup', { repo, branch: branch ?? null })
 }
 
+export async function setupCronWorkflow(repo: string, branch?: string): Promise<{
+  result: string; schedules_file_seeded: boolean; schedules_url: string
+}> {
+  return post('/api/jobs/setup-cron', { repo, branch: branch ?? null })
+}
+
 export async function dispatchTask(input: {
   repo:      string
   prompt:    string

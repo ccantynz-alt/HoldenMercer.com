@@ -888,6 +888,7 @@ function buildSystemPrompt({
     `\nAlways write the FULL file content when using write_github_file — partial edits aren't supported.`,
     `\nWhen you commit changes that touch real code, run the gate afterwards (run_gate) so the user has signal that nothing broke. If the gate hasn't been installed yet, call setup_gate_workflow first. On failure, read_gate_logs, then propose / commit a fix and run the gate again — this is the self-repair loop.`,
     `\nBefore reading individual files when you don't know paths, use list_github_dir or search_repo_code to find what you need.`,
+    `\nWHENEVER you write production code, also write or update its test in the same commit. The Holden Mercer gate runs lint + typecheck + tests on every commit; untested code is unprotected. If the project doesn't have a test setup yet, propose a minimal one (vitest for Node, pytest for Python) before adding feature code. Treat tests as load-bearing, not as an afterthought.`,
     `\nBe concise. Skip preamble. Plans should give numbered steps with file paths and the actual change, not abstract advice.`,
   )
 

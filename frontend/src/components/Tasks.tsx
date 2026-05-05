@@ -15,7 +15,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useProjects } from '../stores/projects'
 import {
-  fetchTaskResult, listTaskRuns, setupTaskWorkflow,
+  fetchTaskResult, listTaskRuns, setupTaskWorkflow, setupCronWorkflow,
   type TaskRun,
 } from '../lib/jobs'
 import { notify, permission } from '../lib/notify'
@@ -42,6 +42,7 @@ export function Tasks({ projectId }: Props) {
   const [openRunResult, setOpenRunResult] = useState<string | null>(null)
   const [resultLoading, setResultLoading] = useState(false)
   const [secretsUrl, setSecretsUrl] = useState<string | null>(null)
+  const [cronInfo,   setCronInfo]   = useState<{ url: string; seeded: boolean } | null>(null)
 
   // Track last-known status per run so we can fire one notification on
   // the in_progress → completed transition without spamming on every poll.
@@ -133,6 +134,20 @@ export function Tasks({ projectId }: Props) {
     }
   }
 
+  const installCron = async () => {
+    setBusy('cron')
+    setError(null)
+    setCronInfo(null)
+    try {
+      const data = await setupCronWorkflow(repo, branch || undefined)
+      setCronInfo({ url: data.schedules_url, seeded: data.schedules_file_seeded })
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const viewRun = async (run: TaskRun) => {
     if (openRun === run.id) {
       setOpenRun(null)
@@ -184,6 +199,11 @@ export function Tasks({ projectId }: Props) {
               {busy === 'install' ? 'Installing…' : 'Install task workflow'}
             </button>
           )}
+          {installed && (
+            <button className="hm-btn-ghost" onClick={installCron} disabled={busy !== null}>
+              {busy === 'cron' ? 'Installing…' : 'Install cron schedules'}
+            </button>
+          )}
           <button className="hm-btn-ghost" onClick={refresh} disabled={loading}>
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
@@ -191,6 +211,19 @@ export function Tasks({ projectId }: Props) {
       </header>
 
       {error && <div className="hm-memory-error">{error}</div>}
+      {cronInfo && (
+        <div className="hm-tasks-empty">
+          <strong>Cron installed.</strong>{' '}
+          The workflow will run every 15 minutes and dispatch any schedule whose
+          cron fires in window. Edit{' '}
+          <a href={cronInfo.url} target="_blank" rel="noreferrer">
+            <code>.holdenmercer/schedules.yml</code>
+          </a>{' '}
+          to add entries — or just ask the Console:{' '}
+          <em>"add a schedule that updates the README every Monday at 9am UTC"</em>.
+          {cronInfo.seeded && ' (Sample schedules.yml committed.)'}
+        </div>
+      )}
       {secretsUrl && (
         <div className="hm-tasks-empty">
           <strong>Last step:</strong> tasks need an Anthropic key in this repo.

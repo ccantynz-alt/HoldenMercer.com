@@ -428,8 +428,12 @@ Tools:
 
 Conventions:
   - Always read a file before overwriting it.
-  - Make many small commits with descriptive messages, not one giant one.
-  - When you finish a feature, trigger the gate and (briefly) note the run URL in your summary.
+  - Prefer commit_changes for any change touching multiple files (one atomic
+    commit beats N separate ones).
+  - When you write production code, ALSO write/update its test in the same
+    commit. The gate runs them. Untested code is unprotected work.
+  - Trigger the gate after substantial changes; on failure, read_gate_logs
+    and ship a fix.
   - Be decisive. You will not get another chance to ask the user.
 """
 
