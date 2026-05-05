@@ -97,6 +97,18 @@ export function ProjectShell() {
               ? <>📦 <code>{project.repo}</code> · <span className="hm-repo-branch">{project.branch || 'main'}</span></>
               : <>+ Link a GitHub repo</>}
           </button>
+          {project.repo && (
+            <a
+              className="hm-repo-link"
+              style={{ marginLeft: 8 }}
+              href={buildShowcaseSubmitUrl(project.repo, project.name, project.description)}
+              target="_blank"
+              rel="noreferrer"
+              title="Submit this project to the public showcase (opens a GitHub edit-and-PR page on the curated registry)"
+            >
+              🌐 Submit to showcase ↗
+            </a>
+          )}
         </div>
         <span className={`hm-status-pill hm-status-${project.status}`}>
           {project.status}
@@ -185,4 +197,21 @@ function renderPane(tab: TabId, projectId: string, switchToConsole: () => void) 
        : tab === 'tasks'    ? <Tasks    projectId={projectId} />
        : tab === 'memory'   ? <Memory   projectId={projectId} />
        : <TaskSwarm />
+}
+
+/** Build a deep-link to the curated registry edit page on GitHub with the
+ *  project pre-filled in the URL. The user clicks "Submit yours", edits the
+ *  JSON in GitHub's file editor, and opens a PR — standard curator review. */
+function buildShowcaseSubmitUrl(repo: string, name: string, tagline: string): string {
+  const [owner, repoName] = repo.split('/')
+  const today = new Date().toISOString().slice(0, 10)
+  const entry = {
+    owner, repo: repoName,
+    title:    name,
+    tagline:  tagline.slice(0, 200),
+    category: 'apps',
+    added_at: today,
+  }
+  const hash = `#submit=${encodeURIComponent(JSON.stringify(entry))}`
+  return `https://github.com/ccantynz-alt/HoldenMercer.com/edit/main/frontend/public/public-registry.json${hash}`
 }

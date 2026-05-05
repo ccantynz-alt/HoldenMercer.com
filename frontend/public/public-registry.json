@@ -1,0 +1,15 @@
+{
+  "$schema": "https://holdenmercer.com/public-registry.schema.json",
+  "version": 1,
+  "description": "Curated list of public Holden Mercer projects. To submit a project, open a PR adding an entry below.",
+  "projects": [
+    {
+      "owner":    "ccantynz-alt",
+      "repo":     "holdenmercer.com",
+      "title":    "Holden Mercer",
+      "tagline":  "An AI website builder console — built with itself. The repo is the memory; the gate is GitHub Actions.",
+      "category": "tools",
+      "added_at": "2026-05-04"
+    }
+  ]
+}
