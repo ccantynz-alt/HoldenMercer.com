@@ -51,6 +51,7 @@ export function SettingsPanel({ open, onClose }: Props) {
   const githubToken      = useSettings((s) => s.githubToken)
   const githubOrg        = useSettings((s) => s.githubOrg)
   const gatetestKey      = useSettings((s) => s.gatetestKey)
+  const autoFixGatetest  = useSettings((s) => s.autoFixGatetest)
   const autonomy         = useSettings((s) => s.autonomy)
   const defaultModel     = useSettings((s) => s.defaultModel)
   const selfRepairRepo   = useSettings((s) => s.selfRepairRepo)
@@ -61,6 +62,7 @@ export function SettingsPanel({ open, onClose }: Props) {
   const setGhToken    = useSettings((s) => s.setGithubToken)
   const setGhOrg      = useSettings((s) => s.setGithubOrg)
   const setGatetest   = useSettings((s) => s.setGatetestKey)
+  const setAutoFix    = useSettings((s) => s.setAutoFixGatetest)
   const setAutonomy   = useSettings((s) => s.setAutonomy)
   const setModel      = useSettings((s) => s.setDefaultModel)
   const email         = useAuth((s) => s.email)
@@ -223,6 +225,38 @@ export function SettingsPanel({ open, onClose }: Props) {
           {gatetestKey && (
             <p className="hm-drawer-confirm">Saved: <code>{mask(gatetestKey)}</code></p>
           )}
+
+          <div style={{ marginTop: 12, padding: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 6, fontSize: 12 }}>
+            <div style={{ marginBottom: 6, color: 'var(--text-muted)' }}>
+              <strong>Webhook URL</strong> — paste this into gatetest.ai's
+              project webhook config so scan results push to HM automatically:
+            </div>
+            <code style={{ display: 'block', padding: 6, background: 'var(--bg, #0a0a0b)', borderRadius: 4, wordBreak: 'break-all' }}>
+              https://www.holdenmercer.com/api/gatetest/webhook
+            </code>
+            <div style={{ marginTop: 6, color: 'var(--text-muted)', fontSize: 11 }}>
+              When gatetest.ai posts here, HM stores the result in
+              <code> .holdenmercer/gatetest-latest.json</code> in the target
+              repo + the dashboard auto-refreshes the Gate panel.
+            </div>
+          </div>
+
+          <label className="hm-radio" style={{ marginTop: 12 }}>
+            <input
+              type="checkbox"
+              checked={autoFixGatetest}
+              onChange={(e) => setAutoFix(e.target.checked)}
+            />
+            <span>
+              <strong>Auto-fix on failed scans</strong>
+              <span className="hm-radio-help">
+                When a gatetest.ai scan returns failures, automatically dispatch
+                a self-repair task (same as clicking "Auto-fix all" manually).
+                Branch + PR + gate-protected merge — never lands on main without
+                a green gate.
+              </span>
+            </span>
+          </label>
         </section>
 
         <section className="hm-drawer-section">

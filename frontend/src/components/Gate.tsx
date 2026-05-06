@@ -316,21 +316,42 @@ function tailLines(text: string, max: number): string {
  */
 function GatetestPanel({ repo }: { repo: string | null }) {
   const gatetestKey = useSettings((s) => s.gatetestKey)
+  const autoFix     = useSettings((s) => s.autoFixGatetest)
   const [tier, setTier]       = useState<'quick' | 'full'>('full')
   const [running, setRunning] = useState(false)
   const [error, setError]     = useState<string | null>(null)
   const [result, setResult]   = useState<GatetestScanResult | null>(null)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [dispatching, setDispatching] = useState<string | null>(null)
+  const [autoDispatched, setAutoDispatched] = useState<string | null>(null)
 
   if (!gatetestKey || !repo) return null
 
   const run = async () => {
     setRunning(true)
     setError(null)
+    setAutoDispatched(null)
     try {
       const data = await scanRepo(repo, tier)
       setResult(data)
+
+      // Autonomous loop: if there are failures AND the user has opted into
+      // auto-fix, dispatch the auto-fix task immediately. The user sees a
+      // banner saying it fired so they're not surprised.
+      const failedNow = (data.modules || []).filter((m) => m.status === 'failed')
+      if (autoFix && failedNow.length > 0) {
+        try {
+          const dispatched = await dispatchTask({
+            repo,
+            prompt:    fixAllPrompt(repo, failedNow, tier),
+            brief:     `Auto-fix dispatched on failed gatetest.ai scan — ${failedNow.length} module(s).`,
+            max_iters: 50,
+          })
+          setAutoDispatched(dispatched.task_id)
+        } catch (autoErr) {
+          setError(`Auto-fix failed to dispatch: ${(autoErr as Error).message}`)
+        }
+      }
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -426,6 +447,21 @@ function GatetestPanel({ repo }: { repo: string | null }) {
       </header>
 
       {error && <div className="hm-memory-error" style={{ marginTop: 12 }}>{error}</div>}
+
+      {autoDispatched && (
+        <div
+          style={{
+            marginTop: 12, padding: 10, borderRadius: 6,
+            background: 'rgba(34,197,94,0.10)',
+            border: '1px solid rgba(34,197,94,0.3)',
+            fontSize: 13,
+          }}
+        >
+          🔧 <strong>Auto-fix dispatched</strong> — task <code>{autoDispatched}</code>.
+          Watch progress in the Tasks tab → 📜 Logs. The agent will iterate
+          fix → scan → fix until green or it surfaces stubborn failures.
+        </div>
+      )}
 
       {result && (
         <div style={{ marginTop: 12 }}>
