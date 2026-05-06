@@ -2,6 +2,21 @@
   "version": 1,
   "active": [
     {
+      "branch": "claude/gatetest-self-repair-seo-compat-ci",
+      "agent": "task:20260506-144543-223d7c",
+      "scope": [
+        "robots.txt",
+        "sitemap.xml",
+        "app/layout.html",
+        ".browserslistrc",
+        "package.json",
+        ".github/workflows/holden-mercer-cron.yml",
+        ".github/workflows/holden-mercer-task.yml"
+      ],
+      "startedAt": "2026-05-06T14:47:36+00:00",
+      "intent": "Self-repair from gatetest.ai full scan: fix 3 failed modules \u2014 SEO (add root robots.txt + sitemap.xml + app/layout.html with full OG/Twitter/JSON-LD tags), compatibility (add root .browserslistrc + root package.json with engines.node), ciHa"
+    },
+    {
       "branch": "claude/gatetest-self-repair",
       "agent": "task:20260506-144607-827f13",
       "scope": [
