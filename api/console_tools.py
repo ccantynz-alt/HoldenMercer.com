@@ -658,7 +658,8 @@ async def _fetch_github_repos(token: str, org: str) -> list[dict]:
         raise ValueError("No GitHub token configured.")
     if not org:
         raise ValueError(
-            "No GlueCron org configured. Add GLUECRON_GITHUB_ORG to the backend env."
+            "No code-host org/user configured. Open Settings → "
+            "Code-host PAT and fill in the org / username field."
         )
 
     headers = _gh_headers(token)

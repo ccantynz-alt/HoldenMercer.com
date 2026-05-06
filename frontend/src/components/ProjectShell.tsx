@@ -24,6 +24,7 @@ import { Tasks } from './Tasks'
 import { TaskSwarm } from './TaskSwarm'
 import { LinkRepoModal } from './LinkRepoModal'
 import { ResizeHandle } from './ResizeHandle'
+import { AdminHome } from './AdminHome'
 import { dispatchTask } from '../lib/jobs'
 
 type TabId = 'brief' | 'planner' | 'console' | 'preview' | 'gate' | 'tasks' | 'memory' | 'swarm'
@@ -53,10 +54,16 @@ function useIsWide(): boolean {
   return wide
 }
 
-export function ProjectShell() {
-  const project = useProjects((s) =>
+interface ProjectShellProps {
+  onNewProject?:   () => void
+  onOpenSettings?: () => void
+}
+
+export function ProjectShell({ onNewProject, onOpenSettings }: ProjectShellProps = {}) {
+  const project   = useProjects((s) =>
     s.projects.find((p) => p.id === s.activeProjectId) ?? null
   )
+  const setActive = useProjects((s) => s.setActive)
   const [tab, setTab]               = useState<TabId>('brief')
   const [linkOpen, setLinkOpen]     = useState(false)
 
@@ -70,12 +77,11 @@ export function ProjectShell() {
 
   if (!project) {
     return (
-      <div className="hm-empty-state">
-        <h1 className="hm-empty-title">No project selected.</h1>
-        <p className="hm-empty-body">
-          Pick one from the sidebar, or create a new one to start building.
-        </p>
-      </div>
+      <AdminHome
+        onNewProject={() => onNewProject?.()}
+        onOpenProject={(id) => setActive(id)}
+        onOpenSettings={() => onOpenSettings?.()}
+      />
     )
   }
 
@@ -100,18 +106,6 @@ export function ProjectShell() {
               ? <>📦 <code>{project.repo}</code> · <span className="hm-repo-branch">{project.branch || 'main'}</span></>
               : <>+ Link a GitHub repo</>}
           </button>
-          {project.repo && (
-            <a
-              className="hm-repo-link"
-              style={{ marginLeft: 8 }}
-              href={buildShowcaseSubmitUrl(project.repo, project.name, project.description)}
-              target="_blank"
-              rel="noreferrer"
-              title="Submit this project to the public showcase (opens a GitHub edit-and-PR page on the curated registry)"
-            >
-              🌐 Submit to showcase ↗
-            </a>
-          )}
           {project.repo && (
             <button
               className="hm-repo-link"
@@ -301,21 +295,4 @@ Steps:
    and any TODOs or unfinished work you spotted that the user should know about.
 
 Be thorough but quick. This is one-shot setup — get it right then exit.`
-}
-
-/** Build a deep-link to the curated registry edit page on GitHub with the
- *  project pre-filled in the URL. The user clicks "Submit yours", edits the
- *  JSON in GitHub's file editor, and opens a PR — standard curator review. */
-function buildShowcaseSubmitUrl(repo: string, name: string, tagline: string): string {
-  const [owner, repoName] = repo.split('/')
-  const today = new Date().toISOString().slice(0, 10)
-  const entry = {
-    owner, repo: repoName,
-    title:    name,
-    tagline:  tagline.slice(0, 200),
-    category: 'apps',
-    added_at: today,
-  }
-  const hash = `#submit=${encodeURIComponent(JSON.stringify(entry))}`
-  return `https://github.com/ccantynz-alt/HoldenMercer.com/edit/main/frontend/public/public-registry.json${hash}`
 }

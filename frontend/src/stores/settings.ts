@@ -22,6 +22,11 @@ interface SettingsState {
   dockedPane:    DockablePane | null
   /** Width of the docked pane in pixels. Persisted so it sticks across reloads. */
   dockedWidth:   number
+  /** Self-repair: the dashboard's OWN repo. When set, the "Fix this" button
+   *  + the error-boundary "Send to Claude" path dispatch background tasks
+   *  against THIS repo so Claude can read + edit Holden Mercer itself. */
+  selfRepairRepo:    string
+  selfRepairBranch:  string
   setAnthropicKey: (key: string) => void
   setGithubToken:  (key: string) => void
   setGithubOrg:    (org: string) => void
@@ -29,6 +34,8 @@ interface SettingsState {
   setDefaultModel: (model: string) => void
   setDockedPane:   (pane: DockablePane | null) => void
   setDockedWidth:  (px: number) => void
+  setSelfRepairRepo:   (repo: string) => void
+  setSelfRepairBranch: (branch: string) => void
 }
 
 export const useSettings = create<SettingsState>()(
@@ -41,6 +48,8 @@ export const useSettings = create<SettingsState>()(
       defaultModel: 'claude-opus-4-7',
       dockedPane:   null,
       dockedWidth:  480,
+      selfRepairRepo:   '',
+      selfRepairBranch: '',
       setAnthropicKey: (key)   => set({ anthropicKey: key.trim() }),
       setGithubToken:  (key)   => set({ githubToken: key.trim() }),
       setGithubOrg:    (org)   => set({ githubOrg: org.trim() }),
@@ -48,6 +57,8 @@ export const useSettings = create<SettingsState>()(
       setDefaultModel: (model) => set({ defaultModel: model }),
       setDockedPane:   (pane)  => set({ dockedPane: pane }),
       setDockedWidth:  (px)    => set({ dockedWidth: Math.max(280, Math.min(960, Math.round(px))) }),
+      setSelfRepairRepo:   (repo)   => set({ selfRepairRepo: repo.trim() }),
+      setSelfRepairBranch: (branch) => set({ selfRepairBranch: branch.trim() }),
     }),
     { name: 'holdenmercer:settings:v1' }
   )

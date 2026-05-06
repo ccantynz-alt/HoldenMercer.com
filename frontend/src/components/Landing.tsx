@@ -6,8 +6,7 @@
  */
 
 interface LandingProps {
-  onEnter:    () => void
-  onDiscover?: () => void
+  onEnter: () => void
 }
 
 const FEATURES = [
@@ -33,7 +32,7 @@ const FEATURES = [
   },
 ]
 
-export function Landing({ onEnter, onDiscover }: LandingProps) {
+export function Landing({ onEnter }: LandingProps) {
   return (
     <div className="lp-root">
       {/* Top nav */}
@@ -43,9 +42,6 @@ export function Landing({ onEnter, onDiscover }: LandingProps) {
           <a href="#features">Features</a>
           <a href="#stack">Stack</a>
           <a href="#manifesto">Manifesto</a>
-          {onDiscover && (
-            <button className="lp-btn lp-btn-ghost" onClick={onDiscover}>Discover</button>
-          )}
           <button className="lp-btn lp-btn-primary" onClick={onEnter}>Enter Dashboard →</button>
         </div>
       </nav>
@@ -68,11 +64,6 @@ export function Landing({ onEnter, onDiscover }: LandingProps) {
             Enter Console
           </button>
           <a className="lp-btn lp-btn-ghost lp-btn-lg" href="#features">See how it works</a>
-          {onDiscover && (
-            <button className="lp-btn lp-btn-ghost lp-btn-lg" onClick={onDiscover}>
-              Browse public projects →
-            </button>
-          )}
         </div>
 
         <div className="lp-hero-stats">
