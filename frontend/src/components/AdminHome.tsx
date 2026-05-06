@@ -21,6 +21,7 @@ import {
   recentCommits, openPullRequests, inProgressRuns,
   type RecentCommit, type OpenPR, type InProgressRun,
 } from '../lib/repo'
+import { checkRepoSecret } from '../lib/jobs'
 
 interface Props {
   onNewProject:  () => void
@@ -186,6 +187,8 @@ export function AdminHome({ onNewProject, onOpenProject, onOpenSettings }: Props
 
       {error && <div className="hm-memory-error">{error}</div>}
 
+      <SetupReadinessCard />
+
       <UsageCard />
 
       <section className="hm-home-stats">
@@ -282,6 +285,97 @@ export function AdminHome({ onNewProject, onOpenProject, onOpenSettings }: Props
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * SetupReadinessCard — admin-level "is HM wired up?" status.
+ *
+ * Reads the central HM dispatch repo (the user's own HoldenMercer.com fork
+ * by default — overridable via Settings → Self-repair). For tasks to work,
+ * that repo needs:
+ *   • ANTHROPIC_API_KEY secret (so the agent can call Claude)
+ *   • HM_PAT secret (so the agent can write to OTHER repos)
+ *
+ * This card surfaces those at a glance with one-click links to fix.
+ */
+function SetupReadinessCard() {
+  const selfRepairRepo = useSettings((s) => s.selfRepairRepo) || 'ccantynz-alt/HoldenMercer.com'
+  const githubKey      = useSettings((s) => s.githubToken)
+  const [anthState, setAnthState] = useState<boolean | null | undefined>(undefined)
+  const [patState,  setPatState]  = useState<boolean | null | undefined>(undefined)
+  const [refreshTick, setRefreshTick] = useState(0)
+
+  useEffect(() => {
+    if (!githubKey || !selfRepairRepo) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [anth, pat] = await Promise.all([
+          checkRepoSecret(selfRepairRepo, 'ANTHROPIC_API_KEY').catch(() => ({ set: null })),
+          checkRepoSecret(selfRepairRepo, 'HM_PAT').catch(() => ({ set: null })),
+        ])
+        if (cancelled) return
+        setAnthState(anth.set)
+        setPatState(pat.set)
+      } catch { /* swallow */ }
+    })()
+    return () => { cancelled = true }
+  }, [selfRepairRepo, githubKey, refreshTick])
+
+  const allGreen = anthState === true && patState === true
+  if (allGreen) return null  // hide once everything's fine — no clutter
+
+  const dotFor = (s: boolean | null | undefined) =>
+    s === true  ? <span style={{ color: 'var(--ok, #22c55e)' }}>✅</span>
+    : s === false ? <span style={{ color: 'var(--error, #ef4444)' }}>❌</span>
+    : <span style={{ color: 'var(--text-muted, #888)' }}>·</span>
+
+  const secretsUrl = `https://github.com/${selfRepairRepo}/settings/secrets/actions/new`
+
+  return (
+    <section className="hm-home-section" style={{ marginBottom: 16 }}>
+      <h2 className="hm-home-section-title">Setup readiness</h2>
+      <p className="hm-home-empty" style={{ marginBottom: 8 }}>
+        Background tasks need two secrets on <code>{selfRepairRepo}</code>.
+        One-time setup. Once both are ✅, every project repo works automatically.
+      </p>
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0, lineHeight: 1.8 }}>
+        <li>
+          {dotFor(anthState)} <strong>ANTHROPIC_API_KEY</strong>{' '}
+          <span style={{ color: 'var(--text-muted)' }}>— so the agent can call Claude.</span>
+          {anthState === false && (
+            <>{' '}<a href={`${secretsUrl}?secret_name=ANTHROPIC_API_KEY`} target="_blank" rel="noreferrer">Add it →</a></>
+          )}
+        </li>
+        <li>
+          {dotFor(patState)} <strong>HM_PAT</strong>{' '}
+          <span style={{ color: 'var(--text-muted)' }}>
+            — a personal access token with <code>repo</code> + <code>workflow</code> scopes,
+            so the agent can write to your OTHER repos.
+          </span>
+          {patState === false && (
+            <>{' '}<a href={`${secretsUrl}?secret_name=HM_PAT`} target="_blank" rel="noreferrer">Add it →</a>{' · '}
+              <a href="https://github.com/settings/tokens/new?description=Holden%20Mercer%20cross-repo&scopes=repo,workflow" target="_blank" rel="noreferrer">Create the PAT →</a>
+            </>
+          )}
+        </li>
+        {anthState === null && (
+          <li style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+            Note: your code-host PAT lacks the admin scope to read secret status,
+            so the readiness check can't auto-verify. Set the secrets above and
+            tasks should just work.
+          </li>
+        )}
+      </ul>
+      <button
+        className="hm-btn-ghost"
+        style={{ marginTop: 8 }}
+        onClick={() => setRefreshTick((n) => n + 1)}
+      >
+        Re-check
+      </button>
+    </section>
   )
 }
 
