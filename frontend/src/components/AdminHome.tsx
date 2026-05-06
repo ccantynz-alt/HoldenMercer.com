@@ -22,6 +22,7 @@ import {
   type RecentCommit, type OpenPR, type InProgressRun,
 } from '../lib/repo'
 import { checkRepoSecret, setupTaskWorkflow } from '../lib/jobs'
+import { SectionErrorBoundary } from './SectionErrorBoundary'
 
 interface Props {
   onNewProject:  () => void
@@ -187,9 +188,13 @@ export function AdminHome({ onNewProject, onOpenProject, onOpenSettings }: Props
 
       {error && <div className="hm-memory-error">{error}</div>}
 
-      <SetupReadinessCard />
+      <SectionErrorBoundary name="Setup readiness">
+        <SetupReadinessCard />
+      </SectionErrorBoundary>
 
-      <UsageCard />
+      <SectionErrorBoundary name="API spend">
+        <UsageCard />
+      </SectionErrorBoundary>
 
       <section className="hm-home-stats">
         <StatCard label="Projects"        value={stats.projects} />

@@ -53,6 +53,35 @@ export default function App() {
   // Verify the persisted token against the backend on mount
   useEffect(() => { bootstrap() }, [bootstrap])
 
+  // Capture any window-level error / unhandled rejection so we can surface
+  // the actual message in DevTools after a React-185 crash blanks the tree.
+  useEffect(() => {
+    const onError = (e) => {
+      try {
+        window.__hmLastWindowError = {
+          kind: 'error', message: e.message,
+          filename: e.filename, lineno: e.lineno, colno: e.colno,
+          at: new Date().toISOString(),
+        }
+      } catch {}
+    }
+    const onRejection = (e) => {
+      try {
+        const reason = e.reason && (e.reason.message || String(e.reason))
+        window.__hmLastWindowError = {
+          kind: 'unhandledrejection', message: reason,
+          at: new Date().toISOString(),
+        }
+      } catch {}
+    }
+    window.addEventListener('error', onError)
+    window.addEventListener('unhandledrejection', onRejection)
+    return () => {
+      window.removeEventListener('error', onError)
+      window.removeEventListener('unhandledrejection', onRejection)
+    }
+  }, [])
+
   const enter = () => {
     try { localStorage.setItem(ENTERED_KEY, '1') } catch {}
     setView('dashboard')
