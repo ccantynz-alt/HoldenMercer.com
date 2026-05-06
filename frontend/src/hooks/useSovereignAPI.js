@@ -39,9 +39,10 @@ export function useSovereignAPI() {
   const checkHealth = useCallback(async () => {
     try {
       const res = await fetch('/health')
-      return res.ok ? res.json() : null
-    } catch {
-      return null
+      if (res.ok) return await res.json()
+      return { __error: `HTTP ${res.status} ${res.statusText || ''}`.trim() }
+    } catch (err) {
+      return { __error: err?.message || 'network error' }
     }
   }, [])
 

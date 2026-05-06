@@ -67,12 +67,16 @@ export const useAuth = create<AuthState>()(
       bootstrap: async () => {
         const { token, expiresAt } = get()
         if (!token) {
-          set({ status: 'unauthed' })
+          set({ status: 'unauthed', errorMessage: null })
           return
         }
         // Cheap client-side expiry check — saves a request when the token is obviously dead
         if (expiresAt && expiresAt * 1000 < Date.now()) {
-          set({ token: null, email: null, expiresAt: null, status: 'unauthed' })
+          set({
+            token: null, email: null, expiresAt: null,
+            status: 'unauthed',
+            errorMessage: 'Session expired. Please log in again.',
+          })
           return
         }
         set({ status: 'loading' })
@@ -81,13 +85,22 @@ export const useAuth = create<AuthState>()(
             headers: { Authorization: `Bearer ${token}` },
           })
           if (!res.ok) {
-            set({ token: null, email: null, expiresAt: null, status: 'unauthed' })
+            const msg = res.status === 401
+              ? 'Session expired. Please log in again.'
+              : `Couldn't verify session (HTTP ${res.status}). Please log in again.`
+            set({
+              token: null, email: null, expiresAt: null,
+              status: 'unauthed', errorMessage: msg,
+            })
             return
           }
           const data = await res.json()
-          set({ status: 'authed', email: data.email })
-        } catch {
-          set({ status: 'unauthed' })
+          set({ status: 'authed', email: data.email, errorMessage: null })
+        } catch (err) {
+          set({
+            status: 'unauthed',
+            errorMessage: `Couldn't reach the backend: ${(err as Error).message}`,
+          })
         }
       },
     }),

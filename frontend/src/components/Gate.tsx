@@ -71,7 +71,10 @@ export function Gate({ projectId, onSwitchToConsole }: Props) {
     return () => { cancelled = true }
   }, [repo, branch, refreshTick])
 
-  // Auto-poll while any run is queued/in_progress
+  // Auto-poll while any run is queued/in_progress. If the underlying fetch
+  // fails (transient or auth), we want the error to surface — refresh()
+  // already routes through the same useEffect that sets `error`, so the
+  // user sees what's happening instead of staring at a stuck spinner.
   useEffect(() => {
     const stillRunning = runs.some((r) => r.status !== 'completed')
     if (!stillRunning) return
