@@ -22,6 +22,7 @@ import {
   type RecentCommit, type OpenPR, type InProgressRun,
 } from '../lib/repo'
 import { checkRepoSecret, setupTaskWorkflow } from '../lib/jobs'
+import { SectionErrorBoundary } from './SectionErrorBoundary'
 
 interface Props {
   onNewProject:  () => void
@@ -187,9 +188,13 @@ export function AdminHome({ onNewProject, onOpenProject, onOpenSettings }: Props
 
       {error && <div className="hm-memory-error">{error}</div>}
 
-      <SetupReadinessCard />
+      <SectionErrorBoundary name="Setup readiness">
+        <SetupReadinessCard />
+      </SectionErrorBoundary>
 
-      <UsageCard />
+      <SectionErrorBoundary name="API spend">
+        <UsageCard />
+      </SectionErrorBoundary>
 
       <section className="hm-home-stats">
         <StatCard label="Projects"        value={stats.projects} />
@@ -299,8 +304,16 @@ export function AdminHome({ onNewProject, onOpenProject, onOpenSettings }: Props
  *
  * This card surfaces those at a glance with one-click links to fix.
  */
+/** Defensive: strip 'https://github.com/' if present in case persisted state
+ *  has an old, un-normalised value. The store's setter normalises on input
+ *  but old localStorage from before that landed could still be malformed. */
+function stripUrlPrefix(s: string): string {
+  return s.replace(/^https?:\/\/github\.com\//i, '').replace(/\/+$/, '')
+}
+
 function SetupReadinessCard() {
-  const selfRepairRepo = useSettings((s) => s.selfRepairRepo) || 'ccantynz-alt/HoldenMercer.com'
+  const rawRepo = useSettings((s) => s.selfRepairRepo) || 'ccantynz-alt/HoldenMercer.com'
+  const selfRepairRepo = stripUrlPrefix(rawRepo)
   const githubKey      = useSettings((s) => s.githubToken)
   const [anthState, setAnthState] = useState<boolean | null | undefined>(undefined)
   const [patState,  setPatState]  = useState<boolean | null | undefined>(undefined)

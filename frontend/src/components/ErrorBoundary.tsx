@@ -13,11 +13,13 @@ import { Component, type ReactNode } from 'react'
 
 interface Props {
   children: ReactNode
-  /** Render-prop receives the captured error text + a reset fn + a hard-reset fn. */
+  /** Render-prop receives the captured error text + a reset fn + a hard-reset
+   *  (preserves API keys) + a nuclear-reset (wipes API keys too). */
   fallback: (
-    errorText: string,
-    reset: () => void,
-    hardReset: () => void,
+    errorText:    string,
+    reset:        () => void,
+    hardReset:    () => void,
+    nuclearReset: () => void,
   ) => ReactNode
 }
 
@@ -54,21 +56,83 @@ export class ErrorBoundary extends Component<Props, State> {
 
   reset = () => this.setState({ error: null, errorTxt: '' })
 
-  /** Hard reset: nuke local state (project list, settings, chat threads, usage)
-   *  and reload. Last-resort recovery when the dashboard is stuck in a crash loop
-   *  caused by corrupt persisted state. */
+  /** Hard reset: nuke local state EXCEPT the painful-to-re-enter secrets
+   *  (Anthropic API key + code-host PAT + GitHub org). Most React-185 loops
+   *  are caused by stale chat threads, broken active-project IDs, or
+   *  malformed self-repair URLs — not by the API keys themselves. So keep
+   *  those, wipe everything else. */
   hardReset = () => {
     const ok = confirm(
-      'Hard reset will clear ALL local state:\n\n' +
-      '  • Projects list (you may need to re-link repos)\n' +
-      '  • Settings (API keys, autonomy, model defaults)\n' +
+      'Hard reset will clear most local state:\n\n' +
+      '  • Active project / view state\n' +
       '  • Chat history\n' +
-      '  • Usage stats\n\n' +
-      'Repos and code on GitHub are NOT affected. Continue?'
+      '  • Usage stats\n' +
+      '  • Self-repair settings (default restored)\n' +
+      '  • Pane layout (default restored)\n\n' +
+      'PRESERVED:\n' +
+      '  • Anthropic API key\n' +
+      '  • Code-host PAT (GitHub/GlueCron)\n' +
+      '  • GitHub username/org\n' +
+      '  • Project list (your linked repos stay)\n\n' +
+      'GitHub-side secrets and code are not affected. Continue?'
     )
     if (!ok) return
     try {
-      // Wipe every Holden Mercer localStorage key.
+      // Preserve the painful-to-re-enter values from the settings store.
+      let preservedKeys: { anthropicKey?: string; githubToken?: string; githubOrg?: string } = {}
+      try {
+        const raw = localStorage.getItem('holdenmercer:settings:v1')
+        if (raw) {
+          const parsed = JSON.parse(raw)
+          const s = parsed?.state ?? {}
+          preservedKeys = {
+            anthropicKey: s.anthropicKey || '',
+            githubToken:  s.githubToken  || '',
+            githubOrg:    s.githubOrg    || '',
+          }
+        }
+      } catch { /* swallow */ }
+
+      // Preserve the projects list — re-linking repos is also painful.
+      let preservedProjects: string | null = null
+      try {
+        preservedProjects = localStorage.getItem('holdenmercer:projects:v1')
+      } catch { /* swallow */ }
+
+      // Wipe everything HM owns.
+      const keys: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k && k.startsWith('holdenmercer:')) keys.push(k)
+      }
+      keys.forEach((k) => localStorage.removeItem(k))
+
+      // Restore minimal settings with only the preserved fields. Zustand
+      // persist will rehydrate this and merge with defaults for the rest.
+      try {
+        localStorage.setItem(
+          'holdenmercer:settings:v1',
+          JSON.stringify({ state: preservedKeys, version: 0 }),
+        )
+      } catch { /* swallow */ }
+      if (preservedProjects) {
+        try { localStorage.setItem('holdenmercer:projects:v1', preservedProjects) } catch {}
+      }
+    } catch { /* swallow — never let the rescue code itself crash */ }
+    window.location.reload()
+  }
+
+  /** Nuclear reset: wipe EVERYTHING including API keys. Only for the rare
+   *  case where the keys themselves are corrupting state (very unusual). */
+  nuclearReset = () => {
+    const ok = confirm(
+      'NUCLEAR reset will clear everything including API keys + PAT.\n\n' +
+      'Use this only if a normal Hard reset doesn\'t fix the issue.\n' +
+      'You will need to re-paste your Anthropic key + GitHub PAT after reload.\n\n' +
+      'Continue?'
+    )
+    if (!ok) return
+    try {
       const keys: string[] = []
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i)
@@ -81,7 +145,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.error) {
-      return this.props.fallback(this.state.errorTxt, this.reset, this.hardReset)
+      return this.props.fallback(this.state.errorTxt, this.reset, this.hardReset, this.nuclearReset)
     }
     return this.props.children
   }

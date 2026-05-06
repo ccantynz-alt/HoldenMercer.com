@@ -32,9 +32,17 @@ const WrenchIcon = () => (
   </svg>
 )
 
+/** When the user hasn't explicitly set a self-repair repo, fall back to
+ *  the canonical Holden Mercer repo. Used to be required, which caused a
+ *  confusing 'not configured' error any time persisted state got cleared
+ *  (the placeholder text in Settings looks identical to a saved value, so
+ *  users couldn't tell it was actually empty). */
+const DEFAULT_SELF_REPAIR_REPO = 'ccantynz-alt/HoldenMercer.com'
+
 export function FixThisButton({ prefill, onDispatched }: Props) {
-  const repo   = useSettings((s) => s.selfRepairRepo)
-  const branch = useSettings((s) => s.selfRepairBranch)
+  const settingsRepo = useSettings((s) => s.selfRepairRepo)
+  const branch       = useSettings((s) => s.selfRepairBranch)
+  const repo         = settingsRepo || DEFAULT_SELF_REPAIR_REPO
 
   const [open, setOpen]       = useState(false)
   const [request, setRequest] = useState('')

@@ -27,6 +27,7 @@ import { ResizeHandle } from './ResizeHandle'
 import { AdminHome } from './AdminHome'
 import { AuditLog } from './AuditLog'
 import { ProjectReadiness } from './ProjectReadiness'
+import { SectionErrorBoundary } from './SectionErrorBoundary'
 import { dispatchTask } from '../lib/jobs'
 
 type TabId = 'brief' | 'planner' | 'console' | 'preview' | 'gate' | 'tasks' | 'memory' | 'swarm'
@@ -124,10 +125,12 @@ export function ProjectShell({ onNewProject, onOpenSettings }: ProjectShellProps
         </span>
       </header>
 
-      <ProjectReadiness
-        projectId={project.id}
-        onJumpToTab={(t) => setTab(t)}
-      />
+      <SectionErrorBoundary name="Project readiness">
+        <ProjectReadiness
+          projectId={project.id}
+          onJumpToTab={(t) => setTab(t)}
+        />
+      </SectionErrorBoundary>
 
       <nav className="hm-tabs">
         {TABS.map((t) => {
@@ -246,13 +249,17 @@ function SystemHome({
         </button>
       </nav>
       {tab === 'home' ? (
-        <AdminHome
-          onNewProject={onNewProject}
-          onOpenProject={onOpenProject}
-          onOpenSettings={onOpenSettings}
-        />
+        <SectionErrorBoundary name="Home">
+          <AdminHome
+            onNewProject={onNewProject}
+            onOpenProject={onOpenProject}
+            onOpenSettings={onOpenSettings}
+          />
+        </SectionErrorBoundary>
       ) : (
-        <AuditLog />
+        <SectionErrorBoundary name="Audit log">
+          <AuditLog />
+        </SectionErrorBoundary>
       )}
     </div>
   )

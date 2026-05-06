@@ -226,10 +226,17 @@ export function SettingsPanel({ open, onClose }: Props) {
             spellCheck={false}
             style={{ marginTop: 8 }}
           />
-          {selfRepairRepo && (
+          {selfRepairRepo ? (
             <p className="hm-drawer-confirm">
               Self-repair targets: <code>{selfRepairRepo}</code>
               {selfRepairBranch ? <> @ <code>{selfRepairBranch}</code></> : null}
+            </p>
+          ) : (
+            <p className="hm-drawer-confirm" style={{ color: 'var(--text-muted)' }}>
+              Using default: <code>ccantynz-alt/HoldenMercer.com</code>{' '}
+              <span style={{ fontSize: 12 }}>
+                — the grey placeholder above is just a hint; the default is already active.
+              </span>
             </p>
           )}
         </section>
