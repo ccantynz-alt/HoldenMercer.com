@@ -270,7 +270,118 @@ async def receive_webhook(
         payload.get("totalIssues"),
         len(payload.get("modules", [])),
     )
-    return {"received": True, "target_repo": target_repo, "stored_at": LATEST_FILE_PATH}
+
+    # Offline auto-fix: if the target repo has .holdenmercer/autofix.json
+    # with {"enabled": true}, dispatch a fix task immediately so the loop
+    # closes even when no browser tab is open. The flag lives in the repo
+    # (not in HM's per-user state) so it's per-project and travels with
+    # the repo.
+    auto_dispatched = await _maybe_offline_autofix(target_repo, payload, headers, client_repo=target_repo)
+
+    return {
+        "received":        True,
+        "target_repo":     target_repo,
+        "stored_at":       LATEST_FILE_PATH,
+        "auto_dispatched": auto_dispatched,
+    }
+
+
+async def _maybe_offline_autofix(
+    target_repo: str, payload: dict, headers: dict, client_repo: str,
+) -> dict | None:
+    """If the target repo opted into auto-fix AND the scan has failures,
+    dispatch a self-repair task via the central agent workflow. Returns
+    a small dict on dispatch, None when skipped."""
+    modules = payload.get("modules") or []
+    failed  = [m for m in modules if (m.get("status") == "failed")]
+    if not failed:
+        return None
+
+    from core.config import get_settings as _get_settings
+    settings = _get_settings()
+    central_repo = settings.hm_dispatch_repo or target_repo
+    token = settings.gluecron_github_token
+    if not token:
+        logger.warning("Webhook auto-fix skipped: no backend GitHub token.")
+        return None
+
+    # Read the per-repo opt-in flag.
+    autofix_url = f"{GITHUB_API}/repos/{target_repo}/contents/.holdenmercer/autofix.json"
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        flag_resp = await client.get(
+            autofix_url,
+            headers={**_gh_headers(token), "Accept": "application/vnd.github.raw"},
+        )
+    if flag_resp.status_code != 200:
+        return None  # No opt-in file → don't auto-fix
+    try:
+        flag = json.loads(flag_resp.text)
+    except json.JSONDecodeError:
+        return None
+    if not flag.get("enabled"):
+        return None
+
+    # Build the same fix prompt the frontend uses (kept as a string here so
+    # the backend doesn't need to import frontend code).
+    failed_block = "\n".join(
+        f"  - {m.get('name', '?')} ({m.get('issues', 0)} issues)"
+        + ("".join(f"\n      • {d}" for d in (m.get('details') or [])[:5]))
+        for m in failed
+    )
+    prompt = f"""Self-repair task — gatetest.ai webhook fired with {len(failed)} failed module(s).
+
+Target repo: {target_repo}
+Triggered by: gatetest.ai webhook (offline auto-fix path)
+
+Failed modules + findings:
+{failed_block}
+
+DOCTRINE (binding):
+  • Branch + PR + gate-protected merge
+  • Read flywheel context FIRST (check_recent_activity)
+  • claim_work BEFORE editing
+  • Address EACH failed module above
+  • PRE-COMMIT VALIDATION: before opening the PR, call gatetest_check
+    to confirm green. Iterate (commit → gatetest_check) up to 3 cycles.
+  • merge_pull_request only if gate is green.
+
+When done: report_result with one paragraph summary + the PR URL."""
+
+    # Dispatch via the central workflow (same path /api/jobs/dispatch uses).
+    task_id_dt = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y%m%d-%H%M%S")
+    import secrets as _secrets
+    task_id = f"{task_id_dt}-{_secrets.token_hex(3)}"
+
+    dispatch_url = (
+        f"{GITHUB_API}/repos/{central_repo}/actions/workflows/"
+        f"holden-mercer-task.yml/dispatches"
+    )
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        repo_info = await client.get(f"{GITHUB_API}/repos/{central_repo}", headers=_gh_headers(token))
+        if repo_info.status_code >= 400:
+            return None
+        ref = repo_info.json().get("default_branch", "main")
+
+        resp = await client.post(
+            dispatch_url, headers=_gh_headers(token),
+            json={
+                "ref": ref,
+                "inputs": {
+                    "task_id":     task_id,
+                    "prompt":      prompt,
+                    "target_repo": target_repo,
+                    "brief":       f"Webhook-triggered offline auto-fix on {target_repo}",
+                    "model":       "claude-haiku-4-5-20251001",
+                    "max_iters":   "50",
+                    "branch":      "",
+                },
+            },
+        )
+    if resp.status_code >= 400:
+        logger.warning("Webhook auto-fix dispatch failed: %s %s", resp.status_code, resp.text[:200])
+        return None
+    logger.info("Webhook auto-fix dispatched: task_id=%s target=%s", task_id, target_repo)
+    return {"task_id": task_id, "central_repo": central_repo}
 
 
 class LatestRequest(BaseModel):

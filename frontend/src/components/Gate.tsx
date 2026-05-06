@@ -18,7 +18,7 @@ import {
 } from '../lib/gate'
 import { scanRepo, type GatetestScanResult, type GatetestModule } from '../lib/gatetest'
 import { dispatchTask } from '../lib/jobs'
-import { LiquidOrb } from './LiquidOrb'
+import { estimateTaskCost } from '../stores/usage'
 
 interface Props {
   projectId: string
@@ -321,6 +321,7 @@ function tailLines(text: string, max: number): string {
 function GatetestPanel({ repo }: { repo: string | null }) {
   const gatetestKey = useSettings((s) => s.gatetestKey)
   const autoFix     = useSettings((s) => s.autoFixGatetest)
+  const defaultModel = useSettings((s) => s.defaultModel)
   const [tier, setTier]       = useState<'quick' | 'full'>('full')
   const [running, setRunning] = useState(false)
   const [error, setError]     = useState<string | null>(null)
@@ -370,10 +371,14 @@ function GatetestPanel({ repo }: { repo: string | null }) {
     if (!repo) return
     setDispatching(m.name)
     try {
+      const globalPrefs = useSettings.getState().globalPrefs
+      const briefPrefix = globalPrefs.trim()
+        ? `User's global preferences (apply to ALL projects):\n${globalPrefs.trim()}\n\n---\n\n`
+        : ''
       const dispatched = await dispatchTask({
         repo,
         prompt:    fixModulePrompt(repo, m, tier),
-        brief:     `gatetest.ai found ${m.issues ?? 0} issue(s) in module "${m.name}" — auto-repair task dispatched from HM Gate tab.`,
+        brief:     briefPrefix + `gatetest.ai found ${m.issues ?? 0} issue(s) in module "${m.name}" — auto-repair task dispatched from HM Gate tab.`,
         max_iters: 30,
       })
       alert(
@@ -394,10 +399,14 @@ function GatetestPanel({ repo }: { repo: string | null }) {
     if (!repo) return
     setDispatching('__all__')
     try {
+      const globalPrefs = useSettings.getState().globalPrefs
+      const briefPrefix = globalPrefs.trim()
+        ? `User's global preferences (apply to ALL projects):\n${globalPrefs.trim()}\n\n---\n\n`
+        : ''
       const dispatched = await dispatchTask({
         repo,
         prompt:    fixAllPrompt(repo, failedModules, tier),
-        brief:     `gatetest.ai found ${failedModules.length} failed modules — auto-repair task dispatched from HM Gate tab.`,
+        brief:     briefPrefix + `gatetest.ai found ${failedModules.length} failed modules — auto-repair task dispatched from HM Gate tab.`,
         max_iters: 50,
       })
       alert(
@@ -477,16 +486,29 @@ function GatetestPanel({ repo }: { repo: string | null }) {
               {result.duration?.toFixed(1)}s · tier: {result.tier}
             </span>
             {failed.length > 0 && (
-              <button
-                className="hm-btn-primary hm-btn-glow"
-                onClick={() => fixAll(failed)}
-                disabled={dispatching !== null}
-                title={`Dispatch ONE background task to fix all ${failed.length} failed modules. Branch + PR + gate-protected merge.`}
-              >
-                {dispatching === '__all__'
-                  ? 'Dispatching…'
-                  : `🔧 Auto-fix all ${failed.length} failures`}
-              </button>
+              <>
+                <span
+                  style={{
+                    marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)',
+                  }}
+                  title={estimateTaskCost(defaultModel, 50).notes}
+                >
+                  ≈ {(() => {
+                    const d = estimateTaskCost(defaultModel, 50).estimatedDollars
+                    return d < 0.01 ? '<$0.01' : `$${d.toFixed(d < 1 ? 3 : 2)}`
+                  })()} forecast
+                </span>
+                <button
+                  className="hm-btn-primary"
+                  onClick={() => fixAll(failed)}
+                  disabled={dispatching !== null}
+                  title={`Dispatch ONE background task to fix all ${failed.length} failed modules. Branch + PR + gate-protected merge.`}
+                >
+                  {dispatching === '__all__'
+                    ? 'Dispatching…'
+                    : `🔧 Auto-fix all ${failed.length} failures`}
+                </button>
+              </>
             )}
           </div>
 

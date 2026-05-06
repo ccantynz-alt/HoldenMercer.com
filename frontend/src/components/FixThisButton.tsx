@@ -17,6 +17,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useSettings } from '../stores/settings'
+import { estimateTaskCost } from '../stores/usage'
 import { dispatchTask } from '../lib/jobs'
 
 interface Props {
@@ -172,6 +173,8 @@ export function FixThisButton({ prefill, onDispatched }: Props) {
 
             {error && <div className="hm-link-error">{error}</div>}
 
+            <CostEstimate maxIters={40} />
+
             <div className="hm-modal-actions">
               <button
                 type="button"
@@ -228,4 +231,33 @@ Stack reminders for this repo:
   • Vercel auto-deploys on push to main
 
 When done: report_result with a one-paragraph summary + the PR URL.`
+}
+
+/** Inline cost-estimate row shown above the dispatch button. Reads the
+ *  current default model from settings + a max-iters cap to compute a
+ *  rough dollar forecast. Heuristic — see estimateTaskCost notes. */
+function CostEstimate({ maxIters }: { maxIters: number }) {
+  const model = useSettings((s) => s.defaultModel)
+  const { estimatedDollars, estimatedTokens, notes } = estimateTaskCost(model, maxIters)
+  const pretty = estimatedDollars < 0.01
+    ? '<$0.01'
+    : `$${estimatedDollars.toFixed(estimatedDollars < 1 ? 3 : 2)}`
+  return (
+    <div
+      style={{
+        marginTop: 12, padding: '8px 10px',
+        background: 'rgba(255,255,255,0.03)', borderRadius: 6,
+        fontSize: 12, color: 'var(--text-muted)',
+        display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap',
+      }}
+      title={notes}
+    >
+      <span>Forecast cost on your BYOK key:</span>
+      <strong style={{ color: 'var(--text)' }}>{pretty}</strong>
+      <span>·</span>
+      <span>~{(estimatedTokens / 1000).toFixed(1)}k tokens</span>
+      <span>·</span>
+      <span>{model.replace('claude-', '').replace('-20251001', '')} · {maxIters} max iters</span>
+    </div>
+  )
 }

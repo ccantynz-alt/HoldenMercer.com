@@ -19,6 +19,9 @@ interface SettingsState {
   gatetestKey:   string
   /** Auto-dispatch a fix task whenever a gatetest.ai scan returns failures. */
   autoFixGatetest: boolean
+  /** Cross-project preferences injected into every Console session and
+   *  forwarded to background agents. Free-form markdown the user maintains. */
+  globalPrefs: string
   autonomy:      AutonomyMode
   defaultModel:  string
   /** When set + viewport is wide enough, this pane docks to the right of the
@@ -36,6 +39,7 @@ interface SettingsState {
   setGithubOrg:    (org: string) => void
   setGatetestKey:  (key: string) => void
   setAutoFixGatetest: (on: boolean) => void
+  setGlobalPrefs:     (text: string) => void
   setAutonomy:     (mode: AutonomyMode) => void
   setDefaultModel: (model: string) => void
   setDockedPane:   (pane: DockablePane | null) => void
@@ -65,6 +69,7 @@ export const useSettings = create<SettingsState>()(
       githubOrg:    '',
       gatetestKey:  '',
       autoFixGatetest: false,
+      globalPrefs:     '',
       autonomy:     'smart',
       defaultModel: 'claude-haiku-4-5-20251001',
       dockedPane:   null,
@@ -76,6 +81,7 @@ export const useSettings = create<SettingsState>()(
       setGithubOrg:    (org)   => set({ githubOrg: org.trim() }),
       setGatetestKey:  (key)   => set({ gatetestKey: key.trim() }),
       setAutoFixGatetest: (on) => set({ autoFixGatetest: !!on }),
+      setGlobalPrefs:     (t)  => set({ globalPrefs: t }),
       setAutonomy:     (mode)  => set({ autonomy: mode }),
       setDefaultModel: (model) => set({ defaultModel: model }),
       setDockedPane:   (pane)  => set({ dockedPane: pane }),
@@ -97,6 +103,7 @@ export const useSettings = create<SettingsState>()(
         githubOrg:        s.githubOrg,
         gatetestKey:      s.gatetestKey,
         autoFixGatetest:  s.autoFixGatetest,
+        globalPrefs:      s.globalPrefs,
         autonomy:         s.autonomy,
         defaultModel:     s.defaultModel,
         dockedPane:       s.dockedPane,

@@ -52,6 +52,7 @@ export function SettingsPanel({ open, onClose }: Props) {
   const githubOrg        = useSettings((s) => s.githubOrg)
   const gatetestKey      = useSettings((s) => s.gatetestKey)
   const autoFixGatetest  = useSettings((s) => s.autoFixGatetest)
+  const globalPrefs      = useSettings((s) => s.globalPrefs)
   const autonomy         = useSettings((s) => s.autonomy)
   const defaultModel     = useSettings((s) => s.defaultModel)
   const selfRepairRepo   = useSettings((s) => s.selfRepairRepo)
@@ -63,6 +64,7 @@ export function SettingsPanel({ open, onClose }: Props) {
   const setGhOrg      = useSettings((s) => s.setGithubOrg)
   const setGatetest   = useSettings((s) => s.setGatetestKey)
   const setAutoFix    = useSettings((s) => s.setAutoFixGatetest)
+  const setPrefs      = useSettings((s) => s.setGlobalPrefs)
   const setAutonomy   = useSettings((s) => s.setAutonomy)
   const setModel      = useSettings((s) => s.setDefaultModel)
   const email         = useAuth((s) => s.email)
@@ -175,6 +177,33 @@ export function SettingsPanel({ open, onClose }: Props) {
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>
+        </section>
+
+        <section className="hm-drawer-section">
+          <h3 className="hm-drawer-section-title">Global preferences</h3>
+          <p className="hm-drawer-help">
+            Things you want EVERY Console session and EVERY background agent
+            to know about you and how you build. Markdown, free-form. Examples:{' '}
+            <em>"Always TypeScript"</em>, <em>"Prefer Tailwind over CSS modules"</em>,{' '}
+            <em>"No comments unless non-obvious"</em>, <em>"I'm in NZ time"</em>,{' '}
+            <em>"Mobile-first, iPad is the primary device"</em>. Stops the
+            re-explain-yourself-every-session tax.
+          </p>
+          <textarea
+            className="hm-textarea"
+            value={globalPrefs}
+            onChange={(e) => setPrefs(e.target.value)}
+            placeholder="# How I build&#10;- Always TypeScript&#10;- Prefer Tailwind&#10;- Test before commit&#10;- I'm in NZ time"
+            rows={6}
+            spellCheck
+            autoCapitalize="sentences"
+          />
+          {globalPrefs.trim() && (
+            <p className="hm-drawer-confirm" style={{ fontSize: 12 }}>
+              {globalPrefs.trim().length} chars · injected into every Console
+              prompt + forwarded to background agents on dispatch.
+            </p>
+          )}
         </section>
 
         <section className="hm-drawer-section">
