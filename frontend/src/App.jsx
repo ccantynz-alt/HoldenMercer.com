@@ -12,6 +12,7 @@ import { CommandPalette } from './components/CommandPalette'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ToastStack } from './components/ToastStack'
 import { SpendBanner } from './components/SpendBanner'
+import { ApiMonitor } from './components/ApiMonitor'
 import { useAuth } from './stores/auth'
 import { useProjects } from './stores/projects'
 
@@ -170,6 +171,7 @@ export default function App() {
     >
       <div className="hm-app">
         <SpendBanner onOpenSettings={() => setSettingsOpen(true)} />
+        <ApiMonitor />
         <header className="hm-app-header">
           <button
             className="hm-icon-btn hm-sidebar-toggle"
