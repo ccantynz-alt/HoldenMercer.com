@@ -45,7 +45,7 @@ export const useSettings = create<SettingsState>()(
       githubToken:  '',
       githubOrg:    '',
       autonomy:     'smart',
-      defaultModel: 'claude-opus-4-7',
+      defaultModel: 'claude-haiku-4-5-20251001',
       dockedPane:   null,
       dockedWidth:  480,
       selfRepairRepo:   '',

@@ -153,6 +153,18 @@ async def console_stream(req: ConsoleRequest):
 
                 # Append the assistant turn to history
                 messages.append({"role": "assistant", "content": assistant_blocks})
+
+                # Emit usage so the dashboard can track spend per turn.
+                u = getattr(final, "usage", None)
+                if u is not None:
+                    yield _sse("usage", {
+                        "model":                       getattr(final, "model", req.model),
+                        "input_tokens":                getattr(u, "input_tokens", 0) or 0,
+                        "output_tokens":               getattr(u, "output_tokens", 0) or 0,
+                        "cache_read_input_tokens":     getattr(u, "cache_read_input_tokens", 0) or 0,
+                        "cache_creation_input_tokens": getattr(u, "cache_creation_input_tokens", 0) or 0,
+                    })
+
                 yield _sse("turn_end", {"stop_reason": stop_reason or ""})
 
                 # No tool use → conversation turn is complete

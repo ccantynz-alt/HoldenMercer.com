@@ -19,6 +19,7 @@ import {
 import { useProjects } from '../stores/projects'
 import { useSettings } from '../stores/settings'
 import { useAuth } from '../stores/auth'
+import { useUsage } from '../stores/usage'
 import {
   listDir, readFile, writeFile,
   recentCommits, openPullRequests, inProgressRuns, readActiveWork, readInvariants,
@@ -303,6 +304,8 @@ export function Console({ projectId }: Props) {
               existing.status   = 'error'
               existing.errorMsg = event.data.error ?? 'unknown error'
             }
+          } else if (event.event === 'usage') {
+            useUsage.getState().record(event.data)
           } else if (event.event === 'turn_end') {
             patchMessage(projectId, assistantId, { stopReason: event.data.stop_reason })
           } else if (event.event === 'done') {
@@ -464,6 +467,8 @@ export function Console({ projectId }: Props) {
               status:   'error',
               errorMsg: event.data.error ?? 'unknown error',
             })
+          } else if (event.event === 'usage') {
+            useUsage.getState().record(event.data)
           } else if (event.event === 'turn_end') {
             // intra-phase turn boundary — nothing visible
           } else if (event.event === 'done') {
