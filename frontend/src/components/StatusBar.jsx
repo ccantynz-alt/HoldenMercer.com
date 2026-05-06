@@ -6,6 +6,7 @@ export function StatusBar() {
   const { checkHealth } = useSovereignAPI()
   const [status, setStatus] = useState('checking') // checking | ok | err
   const [latency, setLatency] = useState(null)
+  const [reason, setReason] = useState(null)
 
   // True when any thread has a message currently streaming.
   const isStreaming = useChat((s) =>
@@ -21,8 +22,15 @@ export function StatusBar() {
       if (data?.anthropic?.ok) {
         setStatus('ok')
         setLatency(data.anthropic.latency_ms)
+        setReason(null)
       } else {
         setStatus('err')
+        // Prefer transport-level error reason; fall back to Anthropic detail.
+        setReason(
+          data?.__error
+          || data?.anthropic?.detail
+          || (data ? 'Anthropic upstream not OK' : 'Backend unreachable')
+        )
       }
     }
 
@@ -44,11 +52,20 @@ export function StatusBar() {
   const dotClass = { checking: 'spin', ok: 'ok', err: 'err' }
 
   return (
-    <div className="status-pill">
+    <div
+      className="status-pill"
+      title={status === 'err' && reason ? reason : undefined}
+    >
       <span className={`status-dot ${dotClass[status]}`} />
       {labels[status]}
       {status === 'ok' && latency != null && (
         <span style={{ color: 'var(--text-muted)' }}>{latency}ms</span>
+      )}
+      {status === 'err' && reason && (
+        <span style={{ color: 'var(--text-muted)', marginLeft: 6, fontSize: 11 }}>
+          {/* Truncate to keep the pill compact; full text in title */}
+          {reason.length > 32 ? reason.slice(0, 30) + '…' : reason}
+        </span>
       )}
     </div>
   )

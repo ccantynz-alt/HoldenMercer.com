@@ -343,7 +343,11 @@ export function Console({ projectId }: Props) {
           content:        body,
           commit_message: `chore(memory): session ${filename}`,
         }).catch((err) => {
+          // Memory write fail isn't fatal to the conversation, but the user
+          // should know — silent loss is a trust killer.
+          const msg = err instanceof Error ? err.message : String(err)
           console.warn('Session summary write failed', err)
+          setError(`Couldn't save this turn to repo memory: ${msg}`)
         })
       }
     } catch (err) {
