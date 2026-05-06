@@ -23,6 +23,7 @@ import {
 } from '../lib/repo'
 import { checkRepoSecret, setupTaskWorkflow, dispatchTask } from '../lib/jobs'
 import { toast } from '../stores/toast'
+import { checkDispatch, effectiveDispatchModel } from '../lib/dispatchGuard'
 import { SectionErrorBoundary } from './SectionErrorBoundary'
 
 interface Props {
@@ -274,12 +275,20 @@ export function AdminHome({ onNewProject, onOpenProject, onOpenSettings }: Props
                             `It does NOT auto-merge — you review the revert PR ` +
                             `before anything lands.`
                           )) return
+                          // GUARD: kill switch + daily cap.
+                          const plan = { model: '', maxIters: 15, forceHaiku: true }
+                          const blocked = checkDispatch(plan)
+                          if (blocked) {
+                            toast('error', 'Revert blocked', blocked)
+                            return
+                          }
                           try {
                             const dispatched = await dispatchTask({
                               repo:   ev.repo!,
                               prompt: revertCommitPrompt(ev.repo!, ev.sha!, ev.title),
                               brief:  `Revert commit ${ev.sha} on ${ev.repo} — dispatched from AdminHome.`,
-                              max_iters: 20,
+                              model:  effectiveDispatchModel(plan),
+                              max_iters: plan.maxIters,
                             })
                             toast(
                               'success',

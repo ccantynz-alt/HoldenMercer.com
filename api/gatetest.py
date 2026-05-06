@@ -320,6 +320,15 @@ async def _maybe_offline_autofix(
         return None
     if not flag.get("enabled"):
         return None
+    # Per-repo kill switch: drop a {"paused": true} field into autofix.json
+    # to stop webhook-driven dispatches without removing the file entirely.
+    if flag.get("paused"):
+        logger.info("Webhook auto-fix paused for %s via autofix.json", target_repo)
+        return None
+    # Lower per-task ceiling: cap iters at 25 (was effectively 50 in earlier
+    # builds). Forces Haiku regardless of any other setting; this path can't
+    # be allowed to dispatch Opus tasks unsupervised.
+    flag["max_iters"] = min(int(flag.get("max_iters", 25) or 25), 30)
 
     # Build the same fix prompt the frontend uses (kept as a string here so
     # the backend doesn't need to import frontend code).
@@ -372,7 +381,7 @@ When done: report_result with one paragraph summary + the PR URL."""
                     "target_repo": target_repo,
                     "brief":       f"Webhook-triggered offline auto-fix on {target_repo}",
                     "model":       "claude-haiku-4-5-20251001",
-                    "max_iters":   "50",
+                    "max_iters":   str(flag.get("max_iters", 25)),
                     "branch":      "",
                 },
             },

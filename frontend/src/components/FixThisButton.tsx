@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useSettings } from '../stores/settings'
 import { estimateTaskCost } from '../stores/usage'
 import { toast } from '../stores/toast'
+import { checkDispatch, effectiveDispatchModel } from '../lib/dispatchGuard'
 import { dispatchTask } from '../lib/jobs'
 
 interface Props {
@@ -84,12 +85,22 @@ export function FixThisButton({ prefill, onDispatched }: Props) {
       }
       const prompt = SELF_REPAIR_PROMPT(description, ctx)
 
+      // GUARD: kill switch + daily cap. Force Haiku + lower max_iters
+      // (40→20) so a single fix task can't blow the budget.
+      const plan = { model: '', maxIters: 20, forceHaiku: true }
+      const blocked = checkDispatch(plan)
+      if (blocked) {
+        setError(blocked)
+        setBusy(false)
+        return
+      }
       const dispatched = await dispatchTask({
         repo,
         prompt,
         brief:  'Self-repair task — Claude is editing the Holden Mercer dashboard itself.',
         branch: branch || undefined,
-        max_iters: 40,
+        model:  effectiveDispatchModel(plan),
+        max_iters: plan.maxIters,
       })
 
       onDispatched?.(dispatched.task_id)

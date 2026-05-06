@@ -22,6 +22,13 @@ interface SettingsState {
   /** Cross-project preferences injected into every Console session and
    *  forwarded to background agents. Free-form markdown the user maintains. */
   globalPrefs: string
+  /** Master kill switch. When true, EVERY background dispatch path is
+   *  refused — manual fix buttons, auto-fix, onboarding, self-repair.
+   *  Use this when the API is hemorrhaging spend you can't explain. */
+  pauseAutoDispatch: boolean
+  /** Soft daily cost cap in USD. When today's cumulative API spend
+   *  exceeds this, dispatches are refused with a clear error. 0 = no cap. */
+  dailyCostCapUsd: number
   autonomy:      AutonomyMode
   defaultModel:  string
   /** When set + viewport is wide enough, this pane docks to the right of the
@@ -40,6 +47,8 @@ interface SettingsState {
   setGatetestKey:  (key: string) => void
   setAutoFixGatetest: (on: boolean) => void
   setGlobalPrefs:     (text: string) => void
+  setPauseAutoDispatch: (on: boolean) => void
+  setDailyCostCap:      (usd: number) => void
   setAutonomy:     (mode: AutonomyMode) => void
   setDefaultModel: (model: string) => void
   setDockedPane:   (pane: DockablePane | null) => void
@@ -122,7 +131,9 @@ export const useSettings = create<SettingsState>()(
       githubOrg:    '',
       gatetestKey:  '',
       autoFixGatetest: false,
-      globalPrefs:     '',
+      globalPrefs:        '',
+      pauseAutoDispatch:  false,
+      dailyCostCapUsd:    0,
       autonomy:     'smart',
       defaultModel: 'claude-haiku-4-5-20251001',
       dockedPane:   null,
@@ -147,6 +158,8 @@ export const useSettings = create<SettingsState>()(
       },
       setAutoFixGatetest: (on) => set({ autoFixGatetest: !!on }),
       setGlobalPrefs:     (t)  => set({ globalPrefs: t }),
+      setPauseAutoDispatch: (on) => set({ pauseAutoDispatch: !!on }),
+      setDailyCostCap:    (n)  => set({ dailyCostCapUsd: Math.max(0, Number(n) || 0) }),
       setAutonomy:     (mode)  => set({ autonomy: mode }),
       setDefaultModel: (model) => set({ defaultModel: model }),
       setDockedPane:   (pane)  => set({ dockedPane: pane }),
@@ -169,6 +182,8 @@ export const useSettings = create<SettingsState>()(
         gatetestKey:      s.gatetestKey,
         autoFixGatetest:  s.autoFixGatetest,
         globalPrefs:      s.globalPrefs,
+        pauseAutoDispatch: s.pauseAutoDispatch,
+        dailyCostCapUsd:   s.dailyCostCapUsd,
         autonomy:         s.autonomy,
         defaultModel:     s.defaultModel,
         dockedPane:       s.dockedPane,
