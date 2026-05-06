@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useProjects } from '../stores/projects'
 import {
   fetchTaskResult, listTaskRuns, setupTaskWorkflow, setupCronWorkflow,
+  cancelTaskRun, deleteTaskRun,
   type TaskRun,
 } from '../lib/jobs'
 import { notify, permission } from '../lib/notify'
@@ -302,6 +303,30 @@ export function Tasks({ projectId }: Props) {
                 >
                   Results dir ↗
                 </a>
+                {run.status !== 'completed' && (
+                  <button
+                    className="hm-btn-ghost"
+                    onClick={async () => {
+                      if (!confirm('Cancel this running task?')) return
+                      try { await cancelTaskRun(run.id); refresh() }
+                      catch (err) { setError((err as Error).message) }
+                    }}
+                    title="Cancel this run"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  className="hm-btn-ghost"
+                  onClick={async () => {
+                    if (!confirm('Delete this run from GitHub Actions history?')) return
+                    try { await deleteTaskRun(run.id); refresh() }
+                    catch (err) { setError((err as Error).message) }
+                  }}
+                  title="Delete this run from history"
+                >
+                  🗑
+                </button>
               </div>
             </li>
           )

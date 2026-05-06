@@ -166,49 +166,53 @@ async def dispatch_task(req: DispatchRequest):
     task_id = _new_task_id()
     headers = _gh_headers(token)
 
+    # Centralized model: dispatch always goes to HM_DISPATCH_REPO (the central
+    # repo that hosts the workflow + secrets), regardless of which project repo
+    # is the actual TARGET. The workflow uses target_repo to operate cross-repo.
+    from core.config import get_settings as _get_settings
+    central_repo = _get_settings().hm_dispatch_repo or req.repo
+    target_repo  = req.repo  # the project repo the task should edit
+
     auto_installed = False
     async with httpx.AsyncClient(timeout=30.0) as client:
-        # Resolve the dispatch ref (default branch if none provided)
-        ref = req.branch
-        if not ref:
-            r = await client.get(f"{GITHUB_API}/repos/{req.repo}", headers=headers)
-            r.raise_for_status()
-            ref = r.json().get("default_branch", "main")
+        # Always dispatch on the central repo's default branch — the workflow
+        # itself doesn't care, only the runner cares about target_repo.
+        r = await client.get(f"{GITHUB_API}/repos/{central_repo}", headers=headers)
+        r.raise_for_status()
+        ref = r.json().get("default_branch", "main")
 
         dispatch_url = (
-            f"{GITHUB_API}/repos/{req.repo}/actions/workflows/"
+            f"{GITHUB_API}/repos/{central_repo}/actions/workflows/"
             f"{TASK_WORKFLOW_FILENAME}/dispatches"
         )
         body = {
             "ref":    ref,
             "inputs": {
-                "task_id":   task_id,
-                "prompt":    req.prompt,
-                "brief":     req.brief or "",
-                "model":     req.model,
-                "max_iters": str(req.max_iters),
-                "branch":    req.branch or "",
+                "task_id":     task_id,
+                "prompt":      req.prompt,
+                "target_repo": target_repo,
+                "brief":       req.brief or "",
+                "model":       req.model,
+                "max_iters":   str(req.max_iters),
+                "branch":      req.branch or "",
             },
         }
         resp = await client.post(dispatch_url, headers=headers, json=body)
         if resp.status_code == 404:
-            # Auto-install the workflow + retry once. The user shouldn't have to
-            # bounce to a different tab to provision their own repo.
-            logger.info("Task workflow missing in %s — auto-installing", req.repo)
+            # Central workflow missing — install on the central repo this once.
+            logger.info("Central task workflow missing in %s — auto-installing", central_repo)
             try:
-                await _install_task_workflow_files(client, req.repo, req.branch, headers)
+                await _install_task_workflow_files(client, central_repo, None, headers)
             except HTTPException as exc:
                 raise HTTPException(
                     status_code=exc.status_code,
                     detail=(
-                        f"Tried to auto-install the task workflow in {req.repo} but "
-                        f"failed: {exc.detail}. Make sure your code-host PAT has "
+                        f"Tried to auto-install the central task workflow in {central_repo} "
+                        f"but failed: {exc.detail}. Make sure your code-host PAT has "
                         f"`repo` + `workflow` scopes."
                     ),
                 ) from exc
             auto_installed = True
-            # GitHub takes a beat to register the new workflow; one short retry
-            # window of ~3s is enough in practice.
             import asyncio
             for delay in (1.0, 2.0, 3.0):
                 await asyncio.sleep(delay)
@@ -220,12 +224,13 @@ async def dispatch_task(req: DispatchRequest):
             raise HTTPException(status_code=resp.status_code, detail=resp.text[:300])
 
     return {
-        "task_id":  task_id,
-        "ref":      ref,
-        "actions_url":   f"https://github.com/{req.repo}/actions/workflows/{TASK_WORKFLOW_FILENAME}",
+        "task_id":     task_id,
+        "ref":         ref,
+        "target_repo": target_repo,
+        "actions_url": f"https://github.com/{central_repo}/actions/workflows/{TASK_WORKFLOW_FILENAME}",
         "auto_installed": auto_installed,
         "secret_setup_url": (
-            f"https://github.com/{req.repo}/settings/secrets/actions/new"
+            f"https://github.com/{central_repo}/settings/secrets/actions/new"
             if auto_installed else None
         ),
     }
@@ -235,20 +240,26 @@ async def dispatch_task(req: DispatchRequest):
 
 @router.post("/list", dependencies=[Depends(require_api_key)])
 async def list_tasks(req: ListRequest):
-    """Return the last 25 task workflow runs as structured JSON."""
+    """Return the last 25 task workflow runs as structured JSON.
+
+    Centralized model: lists runs from HM_DISPATCH_REPO (where the workflow
+    actually runs), not from the project repo. Per-project filtering would
+    require fetching each run's inputs, which is too expensive — for now the
+    Tasks tab shows all recent task runs across all projects."""
     token = _resolve_token(req.github_token)
     if "/" not in req.repo:
         raise HTTPException(status_code=400, detail="repo must be in 'owner/name' form.")
     if not token:
         raise HTTPException(status_code=400, detail="No GitHub token configured.")
 
+    from core.config import get_settings as _get_settings
+    central_repo = _get_settings().hm_dispatch_repo or req.repo
+
     headers = _gh_headers(token)
     params  = {"per_page": 25}
-    if req.branch:
-        params["branch"] = req.branch
 
     url = (
-        f"{GITHUB_API}/repos/{req.repo}/actions/workflows/"
+        f"{GITHUB_API}/repos/{central_repo}/actions/workflows/"
         f"{TASK_WORKFLOW_FILENAME}/runs"
     )
     async with httpx.AsyncClient(timeout=20.0) as client:
@@ -356,3 +367,85 @@ async def task_result(req: ResultRequest):
             return {"content": None, "found": False}
         resp.raise_for_status()
     return {"content": resp.text, "found": True}
+
+
+# ── Cancel + Delete + Readiness ─────────────────────────────────────────────
+
+class RunIdRequest(BaseModel):
+    run_id:       int
+    github_token: str = ""
+
+
+@router.post("/cancel", dependencies=[Depends(require_api_key)])
+async def cancel_task(req: RunIdRequest):
+    """Cancel a running task workflow (centralized model: dispatched into
+    HM_DISPATCH_REPO, so the cancel goes there too)."""
+    token = _resolve_token(req.github_token)
+    if not token:
+        raise HTTPException(status_code=400, detail="No GitHub token configured.")
+    from core.config import get_settings as _get_settings
+    central_repo = _get_settings().hm_dispatch_repo
+    headers = _gh_headers(token)
+    url = f"{GITHUB_API}/repos/{central_repo}/actions/runs/{req.run_id}/cancel"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(url, headers=headers)
+        if resp.status_code >= 400 and resp.status_code != 409:
+            # 409 = already finished. We treat it as a no-op success.
+            raise HTTPException(status_code=resp.status_code, detail=resp.text[:300])
+    return {"cancelled": True, "run_id": req.run_id}
+
+
+@router.post("/delete-run", dependencies=[Depends(require_api_key)])
+async def delete_task_run(req: RunIdRequest):
+    """Delete a task workflow run from GitHub Actions history. Cancels first
+    if it's still running. The result `.md` file in the project repo (if
+    present) is left in place — those are user notes."""
+    token = _resolve_token(req.github_token)
+    if not token:
+        raise HTTPException(status_code=400, detail="No GitHub token configured.")
+    from core.config import get_settings as _get_settings
+    central_repo = _get_settings().hm_dispatch_repo
+    headers = _gh_headers(token)
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        # Try cancel first — DELETE refuses on in-progress runs
+        await client.post(
+            f"{GITHUB_API}/repos/{central_repo}/actions/runs/{req.run_id}/cancel",
+            headers=headers,
+        )
+        del_resp = await client.delete(
+            f"{GITHUB_API}/repos/{central_repo}/actions/runs/{req.run_id}",
+            headers=headers,
+        )
+        if del_resp.status_code >= 400 and del_resp.status_code != 404:
+            raise HTTPException(status_code=del_resp.status_code, detail=del_resp.text[:300])
+    return {"deleted": True, "run_id": req.run_id}
+
+
+class CheckSecretRequest(BaseModel):
+    repo:         str
+    secret_name:  str = "ANTHROPIC_API_KEY"
+    github_token: str = ""
+
+
+@router.post("/check-secret", dependencies=[Depends(require_api_key)])
+async def check_repo_secret(req: CheckSecretRequest):
+    """Check whether a repo secret is set. Returns {set: true|false} without
+    revealing the value (GitHub's API never returns secret values). Powers the
+    Repo Readiness Panel."""
+    token = _resolve_token(req.github_token)
+    if "/" not in req.repo:
+        raise HTTPException(status_code=400, detail="repo must be in 'owner/name' form.")
+    if not token:
+        raise HTTPException(status_code=400, detail="No GitHub token configured.")
+    headers = _gh_headers(token)
+    url = f"{GITHUB_API}/repos/{req.repo}/actions/secrets/{req.secret_name}"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(url, headers=headers)
+    if resp.status_code == 200:
+        return {"set": True, "secret_name": req.secret_name}
+    if resp.status_code == 404:
+        return {"set": False, "secret_name": req.secret_name}
+    if resp.status_code == 403:
+        # PAT lacks `secrets:read` — we can't tell. Return unknown.
+        return {"set": None, "secret_name": req.secret_name, "reason": "PAT lacks admin scope"}
+    raise HTTPException(status_code=resp.status_code, detail=resp.text[:300])

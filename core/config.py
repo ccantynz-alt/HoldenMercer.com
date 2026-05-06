@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     gluecron_github_token: str = ""   # PAT with repo:read scope
     gluecron_github_org: str = ""     # org or username that owns GlueCron repos
 
+    # Centralized agent dispatch — the repo that hosts THE Holden Mercer task
+    # workflow. Every background-task dispatch (regardless of which project
+    # repo it operates on) goes to this repo's workflow, which then targets
+    # the project repo via the `target_repo` workflow input. Means one
+    # ANTHROPIC_API_KEY secret + one HM_PAT secret in this central repo,
+    # zero per-project secret setup.
+    hm_dispatch_repo: str = "ccantynz-alt/HoldenMercer.com"
+
     # Provider for code-host operations. The CodeHost interface in
     # core/providers/base.py keeps callers neutral. Supported today:
     #   "github"    → core/providers/github.py
