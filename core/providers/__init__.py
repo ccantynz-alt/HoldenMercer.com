@@ -1,12 +1,13 @@
 """
 Provider factory.
 
-`get_code_host()` returns the active CodeHost adapter based on the
-`CODE_HOST` env setting. Default: github.
+`get_code_host()` returns the active CodeHost — where files / branches / PRs
+live and which CI runs them.
 
-Future providers (write a module + add a branch here):
-  CODE_HOST=gluecron  → core/providers/gluecron.py  (our GitHub equivalent)
-  CODE_HOST=crontech  → core/providers/crontech.py  (compute / mail / sms)
+CODE_HOST options: github (default) · gluecron
+
+To add a provider: drop a module under core/providers/ + add a branch in
+the factory below + flip the env var.
 """
 
 from __future__ import annotations
@@ -29,10 +30,7 @@ def get_code_host(name: str | None = None) -> CodeHost:
     if name == "gluecron":
         from .gluecron import GlueCronCodeHost
         return GlueCronCodeHost()
-    # Add future providers here:
-    # if name == "crontech":
-    #     from .crontech import CronTechCodeHost
-    #     return CronTechCodeHost()
+    # Add future providers here.
 
     raise ValueError(
         f"Unknown CODE_HOST={name!r}. Supported: github, gluecron. "

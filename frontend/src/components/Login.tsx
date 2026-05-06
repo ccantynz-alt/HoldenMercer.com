@@ -69,8 +69,9 @@ export function Login({ onSuccess }: Props) {
         </button>
 
         <p className="hm-login-foot">
-          Single-user dashboard. If this is your first time, the credentials are the
-          ones in your Vercel <code>ADMIN_EMAIL</code> / <code>ADMIN_PASSWORD</code> env vars.
+          Single-user dashboard. If this is your first time, the credentials are
+          the ones set as <code>ADMIN_EMAIL</code> / <code>ADMIN_PASSWORD</code>{' '}
+          in your host's environment variables.
         </p>
       </form>
     </div>
