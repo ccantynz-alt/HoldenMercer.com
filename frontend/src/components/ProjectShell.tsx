@@ -27,6 +27,7 @@ import { ResizeHandle } from './ResizeHandle'
 import { AdminHome } from './AdminHome'
 import { AuditLog } from './AuditLog'
 import { MissionControl } from './MissionControl'
+import { Inbox } from './Inbox'
 import { ProjectReadiness } from './ProjectReadiness'
 import { SectionErrorBoundary } from './SectionErrorBoundary'
 import { dispatchTask } from '../lib/jobs'
@@ -225,7 +226,7 @@ function renderPane(tab: TabId, projectId: string, switchToConsole: () => void) 
  * when no project is selected. This is the operator's "command center"
  * view; per-project work happens after picking a project from the sidebar.
  */
-type SystemTab = 'mission' | 'projects' | 'audit'
+type SystemTab = 'mission' | 'projects' | 'inbox' | 'audit'
 
 function SystemHome({
   onNewProject, onOpenProject, onOpenSettings,
@@ -254,6 +255,13 @@ function SystemHome({
           Projects
         </button>
         <button
+          className={`hm-tab${tab === 'inbox' ? ' is-active' : ''}`}
+          onClick={() => setTab('inbox')}
+          title="Aggregated feed of failed tasks, missing setup, recent crashes — across every linked project"
+        >
+          📥 Inbox
+        </button>
+        <button
           className={`hm-tab${tab === 'audit' ? ' is-active' : ''}`}
           onClick={() => setTab('audit')}
         >
@@ -276,6 +284,11 @@ function SystemHome({
             onOpenProject={onOpenProject}
             onOpenSettings={onOpenSettings}
           />
+        </SectionErrorBoundary>
+      )}
+      {tab === 'inbox' && (
+        <SectionErrorBoundary name="Inbox">
+          <Inbox onOpenProject={onOpenProject} />
         </SectionErrorBoundary>
       )}
       {tab === 'audit' && (
