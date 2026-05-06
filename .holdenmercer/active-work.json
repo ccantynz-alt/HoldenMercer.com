@@ -2,6 +2,21 @@
   "version": 1,
   "active": [
     {
+      "branch": "claude/gatetest-self-repair",
+      "agent": "task:20260506-144607-827f13",
+      "scope": [
+        "robots.txt",
+        "sitemap.xml",
+        "index.html",
+        ".browserslistrc",
+        "package.json",
+        ".github/workflows/holden-mercer-cron.yml",
+        ".github/workflows/holden-mercer-task.yml"
+      ],
+      "startedAt": "2026-05-06T14:47:17+00:00",
+      "intent": "Self-repair from gatetest.ai full-tier scan: fix 3 failed modules \u2014 (1) seo: add root-level robots.txt + sitemap.xml + index.html (with OG/Twitter tags + JSON-LD) so the scanner finds SEO assets at repo root, not just inside frontend/; (2) "
+    },
+    {
       "branch": "claude/admin-gate-tab",
       "agent": "task:20260506-121528-23b7e5",
       "scope": [
