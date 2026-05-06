@@ -8,7 +8,7 @@
  * Claude with the "Have Claude fix this" button — the self-repair loop.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useProjects } from '../stores/projects'
 import { useChat } from '../stores/chat'
 import {
@@ -44,22 +44,28 @@ export function Gate({ projectId, onSwitchToConsole }: Props) {
   const repo   = project?.repo ?? null
   const branch = project?.branch ?? null
 
-  const refresh = useMemo(() => async () => {
+  const [refreshTick, setRefreshTick] = useState(0)
+  const refresh = useCallback(() => setRefreshTick((n) => n + 1), [])
+
+  useEffect(() => {
     if (!repo) return
+    let cancelled = false
     setLoading(true)
     setError(null)
-    try {
-      const data = await listGateRuns(repo, branch || undefined)
-      setRuns(data.runs)
-      setInstalled(data.workflow_installed)
-    } catch (err) {
-      setError((err as Error).message)
-    } finally {
-      setLoading(false)
-    }
-  }, [repo, branch])
-
-  useEffect(() => { refresh() }, [refresh])
+    ;(async () => {
+      try {
+        const data = await listGateRuns(repo, branch || undefined)
+        if (cancelled) return
+        setRuns(data.runs)
+        setInstalled(data.workflow_installed)
+      } catch (err) {
+        if (!cancelled) setError((err as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [repo, branch, refreshTick])
 
   // Auto-poll while any run is queued/in_progress
   useEffect(() => {
