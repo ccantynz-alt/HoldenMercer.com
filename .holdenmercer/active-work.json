@@ -2,6 +2,18 @@
   "version": 1,
   "active": [
     {
+      "branch": "claude/fix-dashboard-error-capture",
+      "agent": "task:20260506-114104-6a37c1",
+      "scope": [
+        "frontend/src/lib/errorBus.ts",
+        "frontend/src/lib/errorBus.test.ts",
+        "frontend/src/main.jsx",
+        "frontend/src/components/FixThisButton.tsx"
+      ],
+      "startedAt": "2026-05-06T11:43:05+00:00",
+      "intent": "Capture async/global errors for the FixThisButton context so vague 'fix the dashboard' reports come with diagnostics next time."
+    },
+    {
       "branch": "claude/fix-react-185-audit-loop",
       "agent": "task:20260506-113915-8a6940",
       "scope": [
