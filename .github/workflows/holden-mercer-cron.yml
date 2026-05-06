@@ -1,0 +1,37 @@
+name: Holden Mercer — Cron
+
+# Runs every 15 minutes (UTC). Reads .holdenmercer/schedules.yml and dispatches
+# any scheduled task whose cron expression fires in the last 15 minutes.
+#
+# To stop scheduled runs entirely: comment out the `schedule:` block, or
+# delete this workflow file. Individual schedules are managed in schedules.yml.
+on:
+  workflow_dispatch:    # manual run for testing
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: read
+  actions:  write       # to dispatch the task workflow
+
+jobs:
+  cron:
+    name: Evaluate schedules
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install -q httpx pyyaml
+
+      - name: Run cron evaluator
+        env:
+          HM_REPO:        ${{ github.repository }}
+          HM_WINDOW_MIN:  "15"
+          GITHUB_TOKEN:   ${{ secrets.GITHUB_TOKEN }}
+        run: python .holdenmercer/cron_runner.py
