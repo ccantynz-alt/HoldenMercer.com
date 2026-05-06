@@ -224,6 +224,27 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "gatetest_check",
+        "description": (
+            "Run gatetest.ai pre-commit on a branch. Returns failed modules + "
+            "details. CALL THIS BEFORE open_pull_request — fix any failures on "
+            "the same branch via another commit_changes, then re-call until green. "
+            "Stops the 'red on GitHub' cycle."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo":   {"type": "string", "description": "owner/name. Defaults to this task's repo."},
+                "branch": {"type": "string", "description": "Branch to scan. Empty = repo default branch."},
+                "tier":   {
+                    "type": "string", "enum": ["quick", "full"],
+                    "description": "quick = ~10s / 4 modules, full = up to 60s / 90 modules. Default 'quick'.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "delete_file",
         "description": "Delete a file from this repository (real commit). Use sparingly.",
         "input_schema": {
@@ -675,6 +696,89 @@ def tool_release_work(branch: str) -> str:
     )
 
 
+def tool_gatetest_check(repo: str, branch: str, tier: str = "quick") -> str:
+    """Run gatetest.ai on a branch BEFORE opening a PR. Returns findings as
+    text the agent reads; iterates until green, then opens PR. This kills
+    the 'commit-then-find-out-it's-red-on-GitHub' cycle."""
+    if "/" not in repo:
+        return "[error: repo must be 'owner/name']"
+    tier = tier if tier in ("quick", "full") else "quick"
+
+    key = os.environ.get("GATETEST_API_KEY", "").strip()
+    if not key:
+        return (
+            "[gatetest_check skipped: GATETEST_API_KEY env var not set on the "
+            "workflow. Skipping pre-commit validation; the post-merge gate "
+            "will catch issues. Add GATETEST_API_KEY as a repo secret to "
+            "enable in-loop validation.]"
+        )
+
+    repo_url = f"https://github.com/{repo}"
+    if branch:
+        repo_url = f"https://github.com/{repo}/tree/{branch}"
+
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type":  "application/json",
+        "User-Agent":    "Holden Mercer Agent",
+    }
+    body = {"repo_url": repo_url, "tier": tier}
+    bases = [
+        "https://www.gatetest.ai/api/v1",
+        "https://gatetest.ai/api/v1",
+        "https://gatetest.io/api/v1",
+        "https://api.gatetest.ai/v1",
+    ]
+
+    resp = None
+    for base in bases:
+        try:
+            attempt = httpx.post(f"{base}/scan", headers=headers, json=body, timeout=90.0)
+        except httpx.HTTPError:
+            continue
+        if attempt.status_code == 404:
+            continue
+        resp = attempt
+        break
+
+    if resp is None:
+        return f"[gatetest_check failed: no scan endpoint reachable. Tried {bases}]"
+    if resp.status_code == 401:
+        return "[gatetest_check failed: GATETEST_API_KEY invalid or revoked.]"
+    if resp.status_code == 502:
+        return f"[gatetest_check failed: gatetest.ai can't access {repo}. Install the gatetest.ai GitHub App.]"
+    if resp.status_code >= 400:
+        return f"[gatetest_check failed: HTTP {resp.status_code}: {resp.text[:200]}]"
+
+    data    = resp.json()
+    modules = data.get("modules", []) or []
+    failed  = [m for m in modules if m.get("status") == "failed"]
+    passed  = [m for m in modules if m.get("status") == "passed"]
+    skipped = [m for m in modules if m.get("status") == "skipped"]
+
+    header = (
+        f"[gatetest.ai scan — {data.get('totalIssues', 0)} issues · "
+        f"{len(passed)} passed · {len(failed)} failed · {len(skipped)} skipped · "
+        f"tier={data.get('tier', tier)} · {data.get('duration', 0):.1f}s]"
+    )
+
+    if not failed:
+        return header + "\n\n✓ ALL CHECKS GREEN. Safe to open_pull_request."
+
+    out = [header, ""]
+    out.append("✗ FAILED MODULES — fix on the SAME branch with another commit_changes,")
+    out.append("  then call gatetest_check again. DO NOT open_pull_request until green.")
+    out.append("")
+    for m in failed:
+        out.append(f"  • {m.get('name', '?')} ({m.get('issues', 0)} issue{'s' if m.get('issues', 0) != 1 else ''})")
+        details = m.get("details") or []
+        for d in details[:5]:
+            out.append(f"      - {d}")
+        if len(details) > 5:
+            out.append(f"      … and {len(details) - 5} more")
+    return "\n".join(out)
+
+
 def tool_report_result(summary: str, success: bool) -> str:
     raise Done(summary=summary, success=success)
 
@@ -693,6 +797,7 @@ def run_tool(name: str, inp: dict) -> str:
         if name == "check_recent_activity": return tool_check_recent_activity()
         if name == "claim_work":         return tool_claim_work(inp.get("branch", ""), inp.get("intent", ""), inp.get("scope") or [])
         if name == "release_work":       return tool_release_work(inp.get("branch", ""))
+        if name == "gatetest_check":     return tool_gatetest_check(inp.get("repo") or REPO, inp.get("branch", ""), inp.get("tier") or "quick")
         if name == "report_result":  return tool_report_result(inp["summary"], bool(inp.get("success", True)))
         return f"[unknown tool: {name}]"
     except Done:
@@ -739,10 +844,19 @@ DOCTRINE — flywheel-first, don't break what's working:
   2. claim_work(branch, intent, scope) — record your claim BEFORE editing so
      concurrent agents see it.
   3. Make your edits — atomic commits via commit_changes when multi-file.
-  4. trigger_gate() with branch=<your branch>. If it fails, fix + retry.
-  5. open_pull_request(head=<your branch>, title=…) — record the PR number.
-  6. merge_pull_request(pull_number=<number>) — refuses if gate isn't green.
-  7. release_work(branch) — clear your manifest entry now that it's shipped.
+  4. PRE-COMMIT VALIDATION (NEW — kills the "red on GitHub" cycle):
+     gatetest_check(repo, branch, tier="quick") — runs the user's gatetest.ai
+     scanner on the branch. If anything's red, fix on the SAME branch with
+     another commit_changes, then call gatetest_check again. Loop until green
+     (max ~3 cycles, then surface what's stubborn). DO NOT open_pull_request
+     while gatetest_check is red — that's how we used to "go round and round
+     in circles". Code goes to GitHub already-green.
+  5. trigger_gate() with branch=<your branch>. Belt-and-suspenders alongside
+     gatetest_check. If it fails, fix + retry.
+  6. open_pull_request(head=<your branch>, title=…) — only after both
+     gatetest_check AND trigger_gate are green.
+  7. merge_pull_request(pull_number=<number>) — refuses if gate isn't green.
+  8. release_work(branch) — clear your manifest entry now that it's shipped.
 
 If `.holdenmercer/invariants.md` exists in the repo, READ IT FIRST. It lists
 things that must not break. Treat each item as a hard constraint.

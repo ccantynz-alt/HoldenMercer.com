@@ -404,6 +404,34 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["repo", "branch"],
         },
     },
+
+    "gatetest_check": {
+        "name": "gatetest_check",
+        "description": (
+            "Run gatetest.ai on a branch BEFORE pushing/PR-opening. Returns the "
+            "scan result inline — list of failed modules with details. Use this "
+            "as a pre-commit gate: if anything's red, fix it on the same branch "
+            "with another commit_changes, then call gatetest_check again. Only "
+            "call open_pull_request once gatetest_check is green. Keeps the "
+            "go-round-and-round-on-GitHub cycle from happening."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo":   { "type": "string", "description": "Repository in 'owner/name' form." },
+                "branch": {
+                    "type": "string",
+                    "description": "Branch to scan. Defaults to the repo's default branch when empty.",
+                },
+                "tier":   {
+                    "type": "string",
+                    "enum": ["quick", "full"],
+                    "description": "quick = 4 modules / ~10s, full = 90 modules / 20-60s. Default 'quick' for in-loop checks; use 'full' for the final pre-PR scan.",
+                },
+            },
+            "required": ["repo"],
+        },
+    },
 }
 
 
@@ -539,6 +567,12 @@ async def run_tool(
             repo=tool_input.get("repo", ""),
             branch=tool_input.get("branch", ""),
             token=github_token,
+        )
+    if name == "gatetest_check":
+        return await _gatetest_check(
+            repo=tool_input.get("repo", ""),
+            branch=tool_input.get("branch", ""),
+            tier=tool_input.get("tier", "quick"),
         )
     if name == "read_github_file":
         return await _read_github_file(
@@ -1543,6 +1577,99 @@ async def _write_meta_file(
         repo=repo, path=path, content=content,
         commit_message=commit_message, branch=branch, token=token,
     )
+
+
+async def _gatetest_check(repo: str, branch: str, tier: str = "quick") -> str:
+    """Run gatetest.ai on a branch via the proxy endpoint, return findings as
+    text the agent can read. The agent uses this BEFORE opening a PR to verify
+    its work is green — no more push-test-fix cycles on GitHub itself."""
+    if "/" not in repo:
+        raise ValueError("repo must be in 'owner/name' form.")
+    tier = tier if tier in ("quick", "full") else "quick"
+
+    # Build a repo URL pointing at the specific branch when given. gatetest.ai
+    # accepts the /tree/<branch> form; falls back to the default branch when
+    # the branch isn't supplied.
+    repo_url = f"https://github.com/{repo}"
+    if branch:
+        repo_url = f"https://github.com/{repo}/tree/{branch}"
+
+    # Pull the gatetest key from the central config. The agent doesn't have
+    # the user's browser-side key, so this requires GATETEST_API_KEY to be
+    # set in the backend env (forwarded from the deploy). Fall back to a
+    # graceful skip with instructions.
+    import os
+    key = os.environ.get("GATETEST_API_KEY", "").strip()
+    if not key:
+        return (
+            "[gatetest_check skipped: GATETEST_API_KEY env var not set on the "
+            "backend. Add it to Vercel project env vars (or your deploy host) "
+            "to enable in-loop pre-commit validation. For now, opening the PR "
+            "without pre-validation — the post-merge gate will catch issues.]"
+        )
+
+    headers = {
+        "Authorization": f"Bearer {key}",
+        "Content-Type":  "application/json",
+        "User-Agent":    "Holden Mercer Agent",
+    }
+    body = {"repo_url": repo_url, "tier": tier}
+
+    bases = [
+        "https://www.gatetest.ai/api/v1",
+        "https://gatetest.ai/api/v1",
+        "https://gatetest.io/api/v1",
+        "https://api.gatetest.ai/v1",
+    ]
+
+    resp = None
+    async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
+        for base in bases:
+            try:
+                attempt = await client.post(f"{base}/scan", headers=headers, json=body)
+            except httpx.HTTPError:
+                continue
+            if attempt.status_code == 404:
+                continue
+            resp = attempt
+            break
+
+    if resp is None:
+        return f"[gatetest_check failed: no scan endpoint reachable. Tried {bases}]"
+    if resp.status_code == 401:
+        return "[gatetest_check failed: GATETEST_API_KEY invalid or revoked.]"
+    if resp.status_code == 502:
+        return f"[gatetest_check failed: gatetest.ai can't access {repo}. Install the gatetest.ai GitHub App.]"
+    if resp.status_code >= 400:
+        return f"[gatetest_check failed: gatetest.ai returned {resp.status_code}: {resp.text[:200]}]"
+
+    data = resp.json()
+    modules = data.get("modules", []) or []
+    failed  = [m for m in modules if m.get("status") == "failed"]
+    passed  = [m for m in modules if m.get("status") == "passed"]
+    skipped = [m for m in modules if m.get("status") == "skipped"]
+
+    header = (
+        f"[gatetest.ai scan — {data.get('totalIssues', 0)} issues · "
+        f"{len(passed)} passed · {len(failed)} failed · {len(skipped)} skipped · "
+        f"tier={data.get('tier', tier)} · {data.get('duration', 0):.1f}s]"
+    )
+
+    if not failed:
+        return header + "\n\n✓ ALL CHECKS GREEN. Safe to open_pull_request."
+
+    out = [header, ""]
+    out.append("✗ FAILED MODULES — fix these on the SAME branch with another commit_changes,")
+    out.append("  then call gatetest_check again. Do NOT open_pull_request until all green.")
+    out.append("")
+    for m in failed:
+        out.append(f"  • {m.get('name', '?')} ({m.get('issues', 0)} issue{'s' if m.get('issues', 0) != 1 else ''})")
+        details = m.get("details") or []
+        for d in details[:5]:
+            out.append(f"      - {d}")
+        if len(details) > 5:
+            out.append(f"      … and {len(details) - 5} more details")
+    return "\n".join(out)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
