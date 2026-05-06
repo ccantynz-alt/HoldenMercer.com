@@ -58,7 +58,13 @@ export async function dispatchTask(input: {
   model?:    string
   max_iters?: number
   branch?:   string
-}): Promise<{ task_id: string; ref: string; actions_url: string }> {
+}): Promise<{
+  task_id:           string
+  ref:               string
+  actions_url:       string
+  auto_installed?:   boolean
+  secret_setup_url?: string | null
+}> {
   return post('/api/jobs/dispatch', input)
 }
 

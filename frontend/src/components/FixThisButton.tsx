@@ -85,11 +85,16 @@ export function FixThisButton({ prefill, onDispatched }: Props) {
       onDispatched?.(dispatched.task_id)
       setOpen(false)
       setRequest('')
+      const installedNote = dispatched.auto_installed
+        ? `\n\nFirst-time setup done — installed the task workflow + agent runner ` +
+          `in this repo. One more step (one-time per repo): add your Anthropic ` +
+          `API key as a repo secret called ANTHROPIC_API_KEY:\n${dispatched.secret_setup_url}`
+        : ''
       alert(
         `Self-repair task dispatched (${dispatched.task_id}).\n\n` +
         `Claude will work on a branch (claude/fix-…), open a PR, and the gate ` +
         `must go green before merge. Check Tasks tab for progress; once it ` +
-        `merges + Vercel redeploys, the fix is live.`
+        `merges + Vercel redeploys, the fix is live.${installedNote}`
       )
     } catch (err) {
       setError((err as Error).message)
@@ -134,7 +139,7 @@ export function FixThisButton({ prefill, onDispatched }: Props) {
                 className="hm-textarea"
                 value={request}
                 onChange={(e) => setRequest(e.target.value)}
-                placeholder={`e.g. "the Settings drawer doesn't save my GitHub PAT — it forgets it on reload"\n\nor: "add a 'duplicate project' button on AdminHome project cards"\n\nDescribe what's broken or what should change. Specific = good.`}
+                placeholder={`e.g. "the Settings drawer doesn't save my code-host PAT — it forgets it on reload"\n\nor: "add a 'duplicate project' button on AdminHome project cards"\n\nDescribe what's broken or what should change. Specific = good.`}
                 rows={7}
                 autoCapitalize="sentences"
                 autoCorrect="on"

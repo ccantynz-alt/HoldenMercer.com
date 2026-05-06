@@ -100,11 +100,11 @@ export function ProjectShell({ onNewProject, onOpenSettings }: ProjectShellProps
           <button
             className="hm-repo-link"
             onClick={() => setLinkOpen(true)}
-            title={project.repo ? 'Repo linked — click to change' : 'Link to a GitHub repo'}
+            title={project.repo ? 'Repo linked — click to change' : 'Link to a repo'}
           >
             {project.repo
               ? <>📦 <code>{project.repo}</code> · <span className="hm-repo-branch">{project.branch || 'main'}</span></>
-              : <>+ Link a GitHub repo</>}
+              : <>+ Link a repo</>}
           </button>
           {project.repo && (
             <button
@@ -224,10 +224,16 @@ async function onboardProject(repo: string, name: string, branch?: string) {
       branch,
       max_iters: 40,
     })
+    const installedNote = dispatched.auto_installed
+      ? `\n\nFirst-time setup done — installed the task workflow + agent runner.\n` +
+        `One more step (one-time per repo): add your Anthropic API key as a repo ` +
+        `secret called ANTHROPIC_API_KEY:\n${dispatched.secret_setup_url}\n` +
+        `The task will fail without it.`
+      : ''
     alert(
       `Onboarding task dispatched (${dispatched.task_id}).\n\n` +
       `Check the Tasks tab for progress. The agent will work on a branch ` +
-      `(claude/onboard-…) and open a PR once it's done.`
+      `(claude/onboard-…) and open a PR once it's done.${installedNote}`
     )
   } catch (err) {
     alert(`Could not dispatch onboarding: ${(err as Error).message}`)

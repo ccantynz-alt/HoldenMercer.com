@@ -46,7 +46,7 @@ export function NewProjectModal({ open, onClose }: Props) {
   useEffect(() => {
     if (mode !== 'repo' || !open) return
     if (!githubKey) {
-      setError('Add a GitHub PAT in Settings first.')
+      setError('Add a code-host PAT in Settings first.')
       return
     }
     if (repos.length > 0) return

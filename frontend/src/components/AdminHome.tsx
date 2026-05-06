@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useProjects, type Project } from '../stores/projects'
 import { useSettings } from '../stores/settings'
+import { useUsage, summarise } from '../stores/usage'
 import {
   recentCommits, openPullRequests, inProgressRuns,
   type RecentCommit, type OpenPR, type InProgressRun,
@@ -48,35 +49,43 @@ export function AdminHome({ onNewProject, onOpenProject, onOpenSettings }: Props
     prs:     OpenPR[]
     runs:    InProgressRun[]
   }>>({})
+  const [refreshTick, setRefreshTick] = useState(0)
+  const refresh = () => setRefreshTick((n) => n + 1)
 
-  const refresh = useMemo(() => async () => {
-    if (linked.length === 0) return
+  // Fetch on mount + when projects/key change + when manual refresh fires.
+  // Depend on `projects` (zustand-stable) NOT `linked` (useMemo, may rebuild).
+  // useMemo + useEffect was the React-185 max-update-depth source.
+  useEffect(() => {
+    const targets = projects.filter((p) => !!p.repo)
+    if (targets.length === 0) return
     if (!githubKey) {
       setError('Add a code-host PAT in Settings to see activity.')
       return
     }
+    let cancelled = false
     setLoading(true)
     setError(null)
-    try {
-      const results = await Promise.all(linked.map(async (p) => {
-        const repo   = p.repo!
-        const branch = p.branch || null
-        const [commits, prs, runs] = await Promise.all([
-          recentCommits(repo, branch, 5).catch(() => []),
-          openPullRequests(repo, 5).catch(() => []),
-          inProgressRuns(repo, 5).catch(() => []),
-        ])
-        return [p.id, { commits, prs, runs }] as const
-      }))
-      setByProject(Object.fromEntries(results))
-    } catch (err) {
-      setError((err as Error).message)
-    } finally {
-      setLoading(false)
-    }
-  }, [linked, githubKey])
-
-  useEffect(() => { refresh() }, [refresh])
+    ;(async () => {
+      try {
+        const results = await Promise.all(targets.map(async (p) => {
+          const repo   = p.repo!
+          const branch = p.branch || null
+          const [commits, prs, runs] = await Promise.all([
+            recentCommits(repo, branch, 5).catch(() => []),
+            openPullRequests(repo, 5).catch(() => []),
+            inProgressRuns(repo, 5).catch(() => []),
+          ])
+          return [p.id, { commits, prs, runs }] as const
+        }))
+        if (!cancelled) setByProject(Object.fromEntries(results))
+      } catch (err) {
+        if (!cancelled) setError((err as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [projects, githubKey, refreshTick])
 
   // Build the unified activity feed
   const activity: ActivityEvent[] = useMemo(() => {
@@ -157,6 +166,8 @@ export function AdminHome({ onNewProject, onOpenProject, onOpenSettings }: Props
 
       {error && <div className="hm-memory-error">{error}</div>}
 
+      <UsageCard />
+
       <section className="hm-home-stats">
         <StatCard label="Projects"        value={stats.projects} />
         <StatCard label="Linked to repo"  value={stats.linked} />
@@ -175,7 +186,7 @@ export function AdminHome({ onNewProject, onOpenProject, onOpenSettings }: Props
         <div className="hm-tasks-empty">
           You have {projects.length} project{projects.length === 1 ? '' : 's'},
           but none are linked to a repo yet. Open one and click{' '}
-          <strong>+ Link a GitHub repo</strong> to start seeing activity here.
+          <strong>+ Link a repo</strong> to start seeing activity here.
         </div>
       ) : !githubKey ? (
         <div className="hm-tasks-empty">
@@ -254,9 +265,38 @@ export function AdminHome({ onNewProject, onOpenProject, onOpenSettings }: Props
   )
 }
 
+function UsageCard() {
+  const days     = useUsage((s) => s.days)
+  const today    = summarise(days, 1)
+  const sevenDay = summarise(days, 7)
+  if (today.totalTokens === 0 && sevenDay.totalTokens === 0) return null
+  const fmt$ = (n: number) => `$${n.toFixed(n < 1 ? 4 : 2)}`
+  const fmtT = (n: number) => n >= 1_000_000
+    ? `${(n / 1_000_000).toFixed(2)}M`
+    : n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n)
+  return (
+    <section className="hm-home-section" style={{ marginBottom: 16 }}>
+      <h2 className="hm-home-section-title">API spend (BYOK)</h2>
+      <div className="hm-home-stats">
+        <StatCard label="Today (tokens)"   value={fmtT(today.totalTokens)} />
+        <StatCard label="Today (est $)"    value={fmt$(today.totalDollars)} tone={today.totalDollars > 5 ? 'gold' : undefined} />
+        <StatCard label="7-day (tokens)"   value={fmtT(sevenDay.totalTokens)} />
+        <StatCard label="7-day (est $)"    value={fmt$(sevenDay.totalDollars)} tone={sevenDay.totalDollars > 25 ? 'gold' : undefined} />
+      </div>
+      {Object.keys(today.byModel).length > 1 && (
+        <p className="hm-home-empty" style={{ marginTop: 8, fontSize: 12 }}>
+          Today by model: {Object.entries(today.byModel).map(([m, v]) =>
+            `${m.replace('claude-', '').replace('-20251001', '')} ${fmt$(v.dollars)}`
+          ).join(' · ')}
+        </p>
+      )}
+    </section>
+  )
+}
+
 function StatCard({
   label, value, tone,
-}: { label: string; value: number; tone?: 'gold' }) {
+}: { label: string; value: number | string; tone?: 'gold' }) {
   return (
     <div className={`hm-home-stat${tone === 'gold' ? ' is-gold' : ''}`}>
       <span className="hm-home-stat-value">{value}</span>

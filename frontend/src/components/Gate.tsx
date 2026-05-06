@@ -76,8 +76,8 @@ export function Gate({ projectId, onSwitchToConsole }: Props) {
       <div className="hm-placeholder">
         <h2 className="hm-placeholder-title">No repo linked.</h2>
         <p className="hm-placeholder-body">
-          The gate runs as GitHub Actions in your project's repo. Click{' '}
-          <strong>+ Link a GitHub repo</strong> above the tabs to set one up.
+          The gate runs as a workflow in your project's repo. Click{' '}
+          <strong>+ Link a repo</strong> above the tabs to set one up.
         </p>
       </div>
     )
