@@ -111,6 +111,23 @@ async def _put_file(client: httpx.AsyncClient, repo: str, path: str, content: st
 
 # ── Setup ───────────────────────────────────────────────────────────────────
 
+async def _install_task_workflow_files(
+    client: httpx.AsyncClient, repo: str, branch: str | None, headers: dict,
+) -> None:
+    """Idempotent: writes the workflow + agent runner. Safe to call repeatedly
+    — _put_file picks up the existing SHA and replaces in place."""
+    await _put_file(
+        client, repo, TASK_WORKFLOW_PATH, TASK_WORKFLOW_YAML,
+        "chore(tasks): install Holden Mercer background task workflow",
+        branch, headers,
+    )
+    await _put_file(
+        client, repo, RUNNER_PATH, AGENT_RUNNER_SOURCE,
+        "chore(tasks): install Holden Mercer agent runner",
+        branch, headers,
+    )
+
+
 @router.post("/setup", dependencies=[Depends(require_api_key)])
 async def setup_task_workflow(req: SetupRequest):
     token = _resolve_token(req.github_token)
@@ -121,16 +138,7 @@ async def setup_task_workflow(req: SetupRequest):
 
     headers = _gh_headers(token)
     async with httpx.AsyncClient(timeout=30.0) as client:
-        await _put_file(
-            client, req.repo, TASK_WORKFLOW_PATH, TASK_WORKFLOW_YAML,
-            "chore(tasks): install Holden Mercer background task workflow",
-            req.branch, headers,
-        )
-        await _put_file(
-            client, req.repo, RUNNER_PATH, AGENT_RUNNER_SOURCE,
-            "chore(tasks): install Holden Mercer agent runner",
-            req.branch, headers,
-        )
+        await _install_task_workflow_files(client, req.repo, req.branch, headers)
 
     return {
         "result": (
@@ -158,6 +166,7 @@ async def dispatch_task(req: DispatchRequest):
     task_id = _new_task_id()
     headers = _gh_headers(token)
 
+    auto_installed = False
     async with httpx.AsyncClient(timeout=30.0) as client:
         # Resolve the dispatch ref (default branch if none provided)
         ref = req.branch
@@ -183,20 +192,42 @@ async def dispatch_task(req: DispatchRequest):
         }
         resp = await client.post(dispatch_url, headers=headers, json=body)
         if resp.status_code == 404:
-            raise HTTPException(
-                status_code=404,
-                detail=(
-                    "Task workflow not installed. Click 'Install task workflow' on "
-                    "the Tasks tab first."
-                ),
-            )
+            # Auto-install the workflow + retry once. The user shouldn't have to
+            # bounce to a different tab to provision their own repo.
+            logger.info("Task workflow missing in %s — auto-installing", req.repo)
+            try:
+                await _install_task_workflow_files(client, req.repo, req.branch, headers)
+            except HTTPException as exc:
+                raise HTTPException(
+                    status_code=exc.status_code,
+                    detail=(
+                        f"Tried to auto-install the task workflow in {req.repo} but "
+                        f"failed: {exc.detail}. Make sure your code-host PAT has "
+                        f"`repo` + `workflow` scopes."
+                    ),
+                ) from exc
+            auto_installed = True
+            # GitHub takes a beat to register the new workflow; one short retry
+            # window of ~3s is enough in practice.
+            import asyncio
+            for delay in (1.0, 2.0, 3.0):
+                await asyncio.sleep(delay)
+                resp = await client.post(dispatch_url, headers=headers, json=body)
+                if resp.status_code != 404:
+                    break
+
         if resp.status_code >= 400:
             raise HTTPException(status_code=resp.status_code, detail=resp.text[:300])
 
     return {
         "task_id":  task_id,
         "ref":      ref,
-        "actions_url": f"https://github.com/{req.repo}/actions/workflows/{TASK_WORKFLOW_FILENAME}",
+        "actions_url":   f"https://github.com/{req.repo}/actions/workflows/{TASK_WORKFLOW_FILENAME}",
+        "auto_installed": auto_installed,
+        "secret_setup_url": (
+            f"https://github.com/{req.repo}/settings/secrets/actions/new"
+            if auto_installed else None
+        ),
     }
 
 

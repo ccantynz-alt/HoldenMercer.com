@@ -85,11 +85,16 @@ export function FixThisButton({ prefill, onDispatched }: Props) {
       onDispatched?.(dispatched.task_id)
       setOpen(false)
       setRequest('')
+      const installedNote = dispatched.auto_installed
+        ? `\n\nFirst-time setup done — installed the task workflow + agent runner ` +
+          `in this repo. One more step (one-time per repo): add your Anthropic ` +
+          `API key as a repo secret called ANTHROPIC_API_KEY:\n${dispatched.secret_setup_url}`
+        : ''
       alert(
         `Self-repair task dispatched (${dispatched.task_id}).\n\n` +
         `Claude will work on a branch (claude/fix-…), open a PR, and the gate ` +
         `must go green before merge. Check Tasks tab for progress; once it ` +
-        `merges + Vercel redeploys, the fix is live.`
+        `merges + Vercel redeploys, the fix is live.${installedNote}`
       )
     } catch (err) {
       setError((err as Error).message)
