@@ -66,6 +66,10 @@ export function SettingsPanel({ open, onClose }: Props) {
   const setGatetest   = useSettings((s) => s.setGatetestKey)
   const setAutoFix    = useSettings((s) => s.setAutoFixGatetest)
   const setPrefs      = useSettings((s) => s.setGlobalPrefs)
+  const pauseAutoDispatch = useSettings((s) => s.pauseAutoDispatch)
+  const setPause      = useSettings((s) => s.setPauseAutoDispatch)
+  const dailyCap      = useSettings((s) => s.dailyCostCapUsd)
+  const setCap        = useSettings((s) => s.setDailyCostCap)
   const setAutonomy   = useSettings((s) => s.setAutonomy)
   const setModel      = useSettings((s) => s.setDefaultModel)
   const email         = useAuth((s) => s.email)
@@ -80,6 +84,65 @@ export function SettingsPanel({ open, onClose }: Props) {
           <h2 className="hm-drawer-title">Settings</h2>
           <button className="hm-icon-btn" onClick={onClose} aria-label="Close">×</button>
         </div>
+
+        <section
+          className="hm-drawer-section"
+          style={{
+            background: pauseAutoDispatch ? 'rgba(239,68,68,0.10)' : 'rgba(234,179,8,0.06)',
+            border: `1px solid ${pauseAutoDispatch ? 'rgba(239,68,68,0.4)' : 'rgba(234,179,8,0.25)'}`,
+            borderRadius: 8, padding: 12,
+          }}
+        >
+          <h3 className="hm-drawer-section-title" style={{ color: pauseAutoDispatch ? 'var(--error)' : 'var(--warn, #eab308)' }}>
+            🛑 API spend controls
+          </h3>
+          <p className="hm-drawer-help">
+            <strong>Use these when you see API spend you can't explain.</strong>
+            {' '}They protect against runaway dispatch loops.
+          </p>
+
+          <label className="hm-radio" style={{ marginTop: 6 }}>
+            <input
+              type="checkbox"
+              checked={pauseAutoDispatch}
+              onChange={(e) => setPause(e.target.checked)}
+            />
+            <span>
+              <strong>{pauseAutoDispatch ? '🛑 PAUSED — dispatches refused' : 'Pause ALL dispatches'}</strong>
+              <span className="hm-radio-help">
+                Master kill switch. When on, every background dispatch path is
+                refused — manual fix buttons, auto-fix, onboarding, self-repair.
+                Toggle off when you've investigated and want to resume.
+              </span>
+            </span>
+          </label>
+
+          <label style={{ display: 'block', marginTop: 12 }}>
+            <span style={{ display: 'block', fontSize: 13, marginBottom: 4 }}>
+              <strong>Daily cost cap (USD)</strong>{' '}
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                — 0 = no cap. Dispatches refused once today's spend hits this.
+              </span>
+            </span>
+            <input
+              className="hm-input"
+              type="number"
+              min="0"
+              step="0.5"
+              value={dailyCap || ''}
+              onChange={(e) => setCap(parseFloat(e.target.value) || 0)}
+              placeholder="e.g. 5"
+              style={{ maxWidth: 200 }}
+            />
+          </label>
+
+          <p className="hm-drawer-help" style={{ marginTop: 8, fontSize: 12 }}>
+            All fix-tasks (manual + auto + onboarding + self-repair) now FORCE
+            Haiku 4.5 regardless of your default model setting, and use lower
+            max_iters defaults (15–25 instead of 40–50). Both are per-dispatch
+            hardcoded so a settings drift can't blow your budget.
+          </p>
+        </section>
 
         <QuickSetup />
 

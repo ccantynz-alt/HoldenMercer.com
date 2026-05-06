@@ -20,6 +20,7 @@ import { scanRepo, type GatetestScanResult, type GatetestModule } from '../lib/g
 import { dispatchTask } from '../lib/jobs'
 import { estimateTaskCost } from '../stores/usage'
 import { toast } from '../stores/toast'
+import { checkDispatch, effectiveDispatchModel } from '../lib/dispatchGuard'
 
 interface Props {
   projectId: string
@@ -346,16 +347,23 @@ function GatetestPanel({ repo }: { repo: string | null }) {
       // banner saying it fired so they're not surprised.
       const failedNow = (data.modules || []).filter((m) => m.status === 'failed')
       if (autoFix && failedNow.length > 0) {
-        try {
-          const dispatched = await dispatchTask({
-            repo,
-            prompt:    fixAllPrompt(repo, failedNow, tier),
-            brief:     `Auto-fix dispatched on failed gatetest.ai scan — ${failedNow.length} module(s).`,
-            max_iters: 50,
-          })
-          setAutoDispatched(dispatched.task_id)
-        } catch (autoErr) {
-          setError(`Auto-fix failed to dispatch: ${(autoErr as Error).message}`)
+        const plan = { model: '', maxIters: 25, forceHaiku: true }
+        const blocked = checkDispatch(plan)
+        if (blocked) {
+          toast('error', 'Auto-fix dispatch blocked', blocked)
+        } else {
+          try {
+            const dispatched = await dispatchTask({
+              repo,
+              prompt:    fixAllPrompt(repo, failedNow, tier),
+              brief:     `Auto-fix dispatched on failed gatetest.ai scan — ${failedNow.length} module(s).`,
+              model:     effectiveDispatchModel(plan),
+              max_iters: plan.maxIters,
+            })
+            setAutoDispatched(dispatched.task_id)
+          } catch (autoErr) {
+            setError(`Auto-fix failed to dispatch: ${(autoErr as Error).message}`)
+          }
         }
       }
     } catch (err) {
@@ -370,6 +378,14 @@ function GatetestPanel({ repo }: { repo: string | null }) {
    *  opens a PR, gate validates. */
   const fixOne = async (m: GatetestModule) => {
     if (!repo) return
+    // GUARD: kill switch + daily cap. Force Haiku for fix tasks so cost is
+    // predictable regardless of user's defaultModel setting.
+    const plan = { model: '', maxIters: 20, forceHaiku: true }
+    const blocked = checkDispatch(plan)
+    if (blocked) {
+      toast('error', 'Dispatch blocked', blocked)
+      return
+    }
     setDispatching(m.name)
     try {
       const globalPrefs = useSettings.getState().globalPrefs
@@ -380,7 +396,8 @@ function GatetestPanel({ repo }: { repo: string | null }) {
         repo,
         prompt:    fixModulePrompt(repo, m, tier),
         brief:     briefPrefix + `gatetest.ai found ${m.issues ?? 0} issue(s) in module "${m.name}" — auto-repair task dispatched from HM Gate tab.`,
-        max_iters: 30,
+        model:     effectiveDispatchModel(plan),
+        max_iters: plan.maxIters,
       })
       toast(
         'success',
@@ -398,6 +415,15 @@ function GatetestPanel({ repo }: { repo: string | null }) {
    *  (one cached system prompt; one branch + one PR; less collision risk). */
   const fixAll = async (failedModules: GatetestModule[]) => {
     if (!repo) return
+    // GUARD: kill switch + daily cap. Force Haiku so spend is bounded;
+    // reduced max_iters from 50→25 (the runaway-cost vector that burned
+    // the user's $50 was iter-50 Opus tasks).
+    const plan = { model: '', maxIters: 25, forceHaiku: true }
+    const blocked = checkDispatch(plan)
+    if (blocked) {
+      toast('error', 'Dispatch blocked', blocked)
+      return
+    }
     setDispatching('__all__')
     try {
       const globalPrefs = useSettings.getState().globalPrefs
@@ -408,7 +434,8 @@ function GatetestPanel({ repo }: { repo: string | null }) {
         repo,
         prompt:    fixAllPrompt(repo, failedModules, tier),
         brief:     briefPrefix + `gatetest.ai found ${failedModules.length} failed modules — auto-repair task dispatched from HM Gate tab.`,
-        max_iters: 50,
+        model:     effectiveDispatchModel(plan),
+        max_iters: plan.maxIters,
       })
       toast(
         'success',

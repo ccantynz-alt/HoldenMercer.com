@@ -31,6 +31,7 @@ import { ProjectReadiness } from './ProjectReadiness'
 import { SectionErrorBoundary } from './SectionErrorBoundary'
 import { dispatchTask } from '../lib/jobs'
 import { toast } from '../stores/toast'
+import { checkDispatch, effectiveDispatchModel } from '../lib/dispatchGuard'
 
 type TabId = 'brief' | 'planner' | 'console' | 'preview' | 'gate' | 'tasks' | 'memory' | 'swarm'
 
@@ -295,13 +296,21 @@ async function onboardProject(repo: string, name: string, branch?: string) {
     `Watch progress in the Tasks tab.`
   )
   if (!ok) return
+  // GUARD: kill switch + daily cap. Force Haiku + 25 iters max.
+  const plan = { model: '', maxIters: 25, forceHaiku: true }
+  const blocked = checkDispatch(plan)
+  if (blocked) {
+    toast('error', 'Onboarding blocked', blocked)
+    return
+  }
   try {
     const dispatched = await dispatchTask({
       repo,
       prompt: ONBOARDING_PROMPT(name, repo),
       brief:  `Onboarding pass for ${name} — auto-written by Holden Mercer.`,
       branch,
-      max_iters: 40,
+      model:  effectiveDispatchModel(plan),
+      max_iters: plan.maxIters,
     })
     const installedNote = dispatched.auto_installed
       ? `\n\nFirst-time setup done — installed the task workflow + agent runner.\n` +
