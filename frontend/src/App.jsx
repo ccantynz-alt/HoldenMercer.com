@@ -102,18 +102,29 @@ export default function App() {
 
   return (
     <ErrorBoundary
-      fallback={(errorText, reset) => (
+      fallback={(errorText, reset, hardReset) => (
         <div className="hm-crash">
           <h1>The dashboard hit an error.</h1>
           <p>This is real — not a placeholder. The fix is built in.</p>
           <pre className="hm-crash-trace">{errorText}</pre>
           <div className="hm-crash-actions">
             <button className="hm-btn-ghost" onClick={reset}>Try again</button>
+            <button
+              className="hm-btn-ghost"
+              onClick={hardReset}
+              title="Clears all Holden Mercer local state and reloads. Fixes loops caused by bad persisted state. Your repos on GitHub are not affected."
+            >
+              Hard reset (clear local state)
+            </button>
             {/* The FixThisButton is also rendered here, prefilled with the
                 error context. Clicking it opens the dialog so Claude can be
                 pointed at the actual crash. */}
             <FixThisButton prefill={`The dashboard crashed with:\n\n${errorText}\n\nFix the underlying cause.`} />
           </div>
+          <p style={{ marginTop: 16, fontSize: 12, color: 'var(--text-muted)' }}>
+            Diagnostic: open DevTools → Console — the full componentStack is
+            available at <code>window.__hmLastCrash</code>.
+          </p>
         </div>
       )}
     >

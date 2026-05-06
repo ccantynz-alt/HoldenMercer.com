@@ -79,3 +79,19 @@ export async function fetchTaskResult(
 ): Promise<{ content: string | null; found: boolean }> {
   return post('/api/jobs/result', { repo, task_id, branch: branch ?? null })
 }
+
+export async function cancelTaskRun(run_id: number): Promise<{ cancelled: boolean }> {
+  return post('/api/jobs/cancel', { run_id })
+}
+
+export async function deleteTaskRun(run_id: number): Promise<{ deleted: boolean }> {
+  return post('/api/jobs/delete-run', { run_id })
+}
+
+/** {set: true} secret exists, {set: false} missing, {set: null} unknown
+ *  (PAT lacks admin scope to read secrets list). */
+export async function checkRepoSecret(
+  repo: string, secret_name = 'ANTHROPIC_API_KEY',
+): Promise<{ set: boolean | null; secret_name: string; reason?: string }> {
+  return post('/api/jobs/check-secret', { repo, secret_name })
+}
