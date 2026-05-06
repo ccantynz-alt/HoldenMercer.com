@@ -16,7 +16,8 @@ import {
   gateLogs, listGateRuns, runGate, setupGate,
   type GateRun,
 } from '../lib/gate'
-import { scanRepo, type GatetestScanResult } from '../lib/gatetest'
+import { scanRepo, type GatetestScanResult, type GatetestModule } from '../lib/gatetest'
+import { dispatchTask } from '../lib/jobs'
 
 interface Props {
   projectId: string
@@ -320,6 +321,7 @@ function GatetestPanel({ repo }: { repo: string | null }) {
   const [error, setError]     = useState<string | null>(null)
   const [result, setResult]   = useState<GatetestScanResult | null>(null)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [dispatching, setDispatching] = useState<string | null>(null)
 
   if (!gatetestKey || !repo) return null
 
@@ -333,6 +335,55 @@ function GatetestPanel({ repo }: { repo: string | null }) {
       setError((err as Error).message)
     } finally {
       setRunning(false)
+    }
+  }
+
+  /** Fix one module via a tightly-scoped background task. Loops out to the
+   *  agent runner; agent reads the module's findings, fixes ONLY that scope,
+   *  opens a PR, gate validates. */
+  const fixOne = async (m: GatetestModule) => {
+    if (!repo) return
+    setDispatching(m.name)
+    try {
+      const dispatched = await dispatchTask({
+        repo,
+        prompt:    fixModulePrompt(repo, m, tier),
+        brief:     `gatetest.ai found ${m.issues ?? 0} issue(s) in module "${m.name}" — auto-repair task dispatched from HM Gate tab.`,
+        max_iters: 30,
+      })
+      alert(
+        `Self-repair task dispatched for "${m.name}" (${dispatched.task_id}).\n\n` +
+        `Watch the Tasks tab → 📜 Logs to see live progress. Agent will branch, ` +
+        `fix, open a PR, and the gate must go green before merge.`
+      )
+    } catch (err) {
+      setError(`Fix dispatch failed: ${(err as Error).message}`)
+    } finally {
+      setDispatching(null)
+    }
+  }
+
+  /** Fix ALL failed modules in ONE task. Cheaper than dispatching N tasks
+   *  (one cached system prompt; one branch + one PR; less collision risk). */
+  const fixAll = async (failedModules: GatetestModule[]) => {
+    if (!repo) return
+    setDispatching('__all__')
+    try {
+      const dispatched = await dispatchTask({
+        repo,
+        prompt:    fixAllPrompt(repo, failedModules, tier),
+        brief:     `gatetest.ai found ${failedModules.length} failed modules — auto-repair task dispatched from HM Gate tab.`,
+        max_iters: 50,
+      })
+      alert(
+        `Auto-fix task dispatched for ${failedModules.length} failed modules (${dispatched.task_id}).\n\n` +
+        `Watch the Tasks tab → 📜 Logs to see live progress. Agent will branch, ` +
+        `fix all findings, open a single PR, run gatetest.ai again to verify green.`
+      )
+    } catch (err) {
+      setError(`Auto-fix dispatch failed: ${(err as Error).message}`)
+    } finally {
+      setDispatching(null)
     }
   }
 
@@ -378,7 +429,7 @@ function GatetestPanel({ repo }: { repo: string | null }) {
 
       {result && (
         <div style={{ marginTop: 12 }}>
-          <div style={{ display: 'flex', gap: 16, fontSize: 13, marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 16, fontSize: 13, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <span><strong>{result.totalIssues}</strong> issues</span>
             <span style={{ color: 'var(--ok, #22c55e)' }}>✓ {passed.length} passed</span>
             <span style={{ color: 'var(--error, #ef4444)' }}>✗ {failed.length} failed</span>
@@ -386,6 +437,19 @@ function GatetestPanel({ repo }: { repo: string | null }) {
             <span style={{ color: 'var(--text-muted)', marginLeft: 'auto' }}>
               {result.duration?.toFixed(1)}s · tier: {result.tier}
             </span>
+            {failed.length > 0 && (
+              <button
+                className="hm-btn-primary"
+                onClick={() => fixAll(failed)}
+                disabled={dispatching !== null}
+                title={`Dispatch ONE background task to fix all ${failed.length} failed modules. Branch + PR + gate-protected merge.`}
+                style={{ marginLeft: 8 }}
+              >
+                {dispatching === '__all__'
+                  ? 'Dispatching…'
+                  : `🔧 Auto-fix all ${failed.length} failures`}
+              </button>
+            )}
           </div>
 
           {failed.map((m) => (
@@ -399,8 +463,24 @@ function GatetestPanel({ repo }: { repo: string | null }) {
                 borderRadius: 6,
               }}
             >
-              <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--error)' }}>
-                ✗ <strong>{m.name}</strong> · {m.issues ?? 0} issue{m.issues === 1 ? '' : 's'}
+              <summary
+                style={{
+                  cursor: 'pointer', fontSize: 13, color: 'var(--error)',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}
+              >
+                <span>
+                  ✗ <strong>{m.name}</strong> · {m.issues ?? 0} issue{m.issues === 1 ? '' : 's'}
+                </span>
+                <button
+                  className="hm-btn-ghost"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); fixOne(m) }}
+                  disabled={dispatching !== null}
+                  title={`Dispatch a focused background task to fix only "${m.name}". Branch + PR + gate-protected merge.`}
+                  style={{ fontSize: 11 }}
+                >
+                  {dispatching === m.name ? 'Dispatching…' : '🔧 Have Claude fix this'}
+                </button>
               </summary>
               {m.details && m.details.length > 0 && (
                 <ul style={{ margin: '8px 0 0 0', paddingLeft: 20, fontSize: 12 }}>
@@ -425,4 +505,76 @@ function GatetestPanel({ repo }: { repo: string | null }) {
       )}
     </section>
   )
+}
+
+// ── Prompt builders for the gatetest.ai self-repair loop ────────────────────
+
+function fixModulePrompt(repo: string, m: GatetestModule, tier: string): string {
+  const detailsBlock = (m.details && m.details.length > 0)
+    ? '\nSpecific findings:\n' + m.details.map((d) => `  • ${d}`).join('\n')
+    : ''
+  return `Self-repair task — gatetest.ai found issues in this repo.
+
+Target repo: ${repo}
+Failed module: "${m.name}"
+Issues count: ${m.issues ?? 'unknown'}
+gatetest.ai tier when scanned: ${tier}
+${detailsBlock}
+
+DOCTRINE (binding):
+  • Branch + PR + gate-protected merge — never commit to main directly
+  • Read flywheel context FIRST (check_recent_activity)
+  • claim_work BEFORE editing
+  • Keep your scope TIGHT — fix ONLY the "${m.name}" findings. Don't drift.
+    If you spot something else worth fixing, note it in the PR body but
+    DO NOT touch it in this PR.
+  • Maintain ALL invariants in .holdenmercer/invariants.md if present
+  • After committing fixes, dispatch a fresh gatetest.ai scan via the
+    /api/gatetest/scan endpoint (or by clicking Run scan in HM) to confirm
+    the "${m.name}" module now passes. If it doesn't, iterate on the same
+    branch with another commit + scan, up to a reasonable limit. The PR
+    only merges if the gate is green.
+
+When done: report_result with a one-paragraph summary covering:
+  • What was wrong (root cause, in your words)
+  • What you changed (files + the actual fix)
+  • Final scan result for "${m.name}" — passed / still failing
+  • The PR URL`
+}
+
+function fixAllPrompt(repo: string, modules: GatetestModule[], tier: string): string {
+  const blocks = modules.map((m) => {
+    const det = (m.details && m.details.length > 0)
+      ? '\n    Findings:\n' + m.details.map((d) => `      • ${d}`).join('\n')
+      : ''
+    return `  - ${m.name} (${m.issues ?? 0} issues)${det}`
+  }).join('\n')
+
+  return `Self-repair task — gatetest.ai found ${modules.length} failed modules.
+
+Target repo: ${repo}
+gatetest.ai tier when scanned: ${tier}
+
+Failed modules + findings:
+${blocks}
+
+DOCTRINE (binding):
+  • Branch + PR + gate-protected merge — never commit to main directly
+  • Read flywheel context FIRST (check_recent_activity)
+  • claim_work BEFORE editing
+  • One PR for all fixes — group commits logically (one commit per module
+    where possible). Don't open ${modules.length} separate PRs.
+  • Address EACH module above. Don't pick favourites or skip the hard ones.
+  • Maintain ALL invariants in .holdenmercer/invariants.md if present
+  • After committing all fixes, dispatch a fresh gatetest.ai scan to
+    verify every previously-failed module now passes. If any still fail,
+    iterate on the same branch — up to ~3 fix-then-scan cycles before
+    surfacing what's stubborn for the user to look at.
+  • The PR only merges if the gate is green.
+
+When done: report_result with one paragraph covering:
+  • What you changed across all modules (one bullet per module)
+  • Final gatetest.ai scan result — how many of the ${modules.length}
+    modules now pass; if any still fail, name them + why
+  • The PR URL`
 }
