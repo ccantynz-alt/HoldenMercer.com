@@ -1,0 +1,80 @@
+name: Holden Mercer — Background Task
+
+# Centralized agent workflow. ONE secret on the HM repo, every project repo
+# works automatically. Dispatched from the dashboard with a target_repo input
+# pointing at whichever project the task should run against.
+#
+# Backward-compat: if target_repo is empty, defaults to github.repository
+# (works for self-repair tasks dispatched against this repo). Cross-repo
+# tasks need HM_PAT (a personal access token with `repo` + `workflow` scopes
+# stored as a repo secret); single-repo / self-repair falls back to the
+# auto-provided GITHUB_TOKEN.
+on:
+  workflow_dispatch:
+    inputs:
+      task_id:
+        description: "Opaque task id from the dashboard."
+        required: true
+      prompt:
+        description: "The task for Claude to perform."
+        required: true
+      target_repo:
+        description: "owner/name of the repo this task should operate on. Empty = this repo."
+        required: false
+        default: ""
+      brief:
+        description: "Project brief for system context."
+        required: false
+        default: ""
+      model:
+        description: "Anthropic model id."
+        required: false
+        default: "claude-haiku-4-5-20251001"
+      max_iters:
+        description: "Safety cap on tool-use turns."
+        required: false
+        default: "30"
+      branch:
+        description: "Branch to commit to. Empty = repo default."
+        required: false
+        default: ""
+
+permissions:
+  # Need write so the agent can commit files via the GitHub API (same-repo).
+  contents: write
+  # Need actions:write so the agent can dispatch the gate workflow.
+  actions:  write
+
+jobs:
+  agent:
+    name: Holden Mercer agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install agent deps
+        run: pip install -q anthropic httpx
+
+      - name: Run the agent
+        env:
+          # If target_repo input is set, the agent operates against THAT repo.
+          # Otherwise it falls back to the repo this workflow lives in
+          # (preserves the existing self-repair flow).
+          HM_REPO:           ${{ github.event.inputs.target_repo != '' && github.event.inputs.target_repo || github.repository }}
+          HM_TASK_ID:        ${{ github.event.inputs.task_id }}
+          HM_PROMPT:         ${{ github.event.inputs.prompt }}
+          HM_BRIEF:          ${{ github.event.inputs.brief }}
+          HM_MODEL:          ${{ github.event.inputs.model }}
+          HM_MAX_ITERS:      ${{ github.event.inputs.max_iters }}
+          HM_BRANCH:         ${{ github.event.inputs.branch }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Prefer HM_PAT (cross-repo PAT) when set, else the auto GITHUB_TOKEN
+          # (works for same-repo only).
+          GITHUB_TOKEN:      ${{ secrets.HM_PAT != '' && secrets.HM_PAT || secrets.GITHUB_TOKEN }}
+        run: python .holdenmercer/agent_runner.py

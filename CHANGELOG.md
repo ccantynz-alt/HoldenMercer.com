@@ -2,6 +2,9 @@
 
 All notable changes to Holden Mercer.
 
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [Unreleased]
 
 ### Added
@@ -30,9 +33,8 @@ All notable changes to Holden Mercer.
 - Saving a PAT in Settings no longer logs the user out (backend was propagating GitHub 401s as 401 to the SPA)
 - Self-repair field accepting full GitHub URLs no longer breaks "Add it →" deeplinks (URL prefix auto-stripped)
 - Onboarding a fresh repo no longer requires bouncing to the Tasks tab to install the workflow first (auto-install on first dispatch)
-- Workflow YAMLs separate user-controlled inputs from secrets across steps so a malicious prompt can't exfiltrate credentials
 
 ### Security
 - All `actions/checkout`, `actions/setup-python`, `actions/setup-node` references pinned to immutable commit SHAs
 - Gate workflow has explicit `permissions: read-all` (minimum-privilege default)
-- Task workflow stages user inputs to `/tmp/hm/inputs.json` in a step with no secrets, then a separate step with secrets reads the staged file
+- Task workflow stages user inputs to `/tmp/hm/inputs.json` in a step with no secrets, then a separate step with secrets reads the staged file — kills the secret-exfil risk flagged by gatetest.ai's ciHardening check

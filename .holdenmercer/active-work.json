@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "active": [
+    {
+      "branch": "claude/admin-gate-tab",
+      "agent": "task:20260506-121528-23b7e5",
+      "scope": [
+        "frontend/src/components/AdminGate.tsx",
+        "frontend/src/components/AdminGate.test.ts",
+        "frontend/src/components/ProjectShell.tsx"
+      ],
+      "startedAt": "2026-05-06T12:17:06+00:00",
+      "intent": "Add a Gate tab to the admin panel (SystemHome) so the user can run/fix code from the dashboard's home view without first picking a project. New AdminGate.tsx component reuses lib/gate.ts; defaults to the self-repair repo, with a picker for "
+    },
+    {
+      "branch": "claude/fix-react-185-auditlog-loop",
+      "agent": "task:20260506-121439-feba8f",
+      "scope": [
+        "frontend/src/components/AuditLog.tsx"
+      ],
+      "startedAt": "2026-05-06T12:15:39+00:00",
+      "intent": "Fix React #185 max-update-depth crash in AuditLog. The fetch effect depends on `linked` (a useMemo'd array filtered from projects). When upstream renders cause `projects` reference changes, `linked` rebuilds, the effect re-fires, calls setS"
+    },
+    {
+      "branch": "claude/include-component-stack-in-self-repair",
+      "agent": "task:20260506-120712-58ddc4",
+      "scope": [
+        "frontend/src/components/ErrorBoundary.tsx",
+        "frontend/src/App.jsx",
+        "frontend/src/components/ErrorBoundary.test.tsx"
+      ],
+      "startedAt": "2026-05-06T12:09:29+00:00",
+      "intent": "When the dashboard's ErrorBoundary catches a crash, the FixThisButton it renders is prefilled with only the JS error stack (often minified to \"Error #185\" with no useful frames in prod). The actual componentStack \u2014 which tells you WHICH com"
+    },
+    {
+      "branch": "claude/harden-react-185-defenses",
+      "agent": "task:20260506-114033-247d39",
+      "scope": [
+        "frontend/src/components/AdminHome.tsx",
+        "frontend/src/components/Console.tsx"
+      ],
+      "startedAt": "2026-05-06T11:46:42+00:00",
+      "intent": "Complementary defenses for React-185 max-update-depth: harden AdminHome's loop-guard to permanently kill the activity-refresh loop (not just setError once), and stabilize Console's messages selector so empty threads don't return a fresh [] "
+    },
+    {
+      "branch": "claude/fix-dashboard-error-capture",
+      "agent": "task:20260506-114104-6a37c1",
+      "scope": [
+        "frontend/src/lib/errorBus.ts",
+        "frontend/src/lib/errorBus.test.ts",
+        "frontend/src/main.jsx",
+        "frontend/src/components/FixThisButton.tsx"
+      ],
+      "startedAt": "2026-05-06T11:43:05+00:00",
+      "intent": "Capture async/global errors for the FixThisButton context so vague 'fix the dashboard' reports come with diagnostics next time."
+    },
+    {
+      "branch": "claude/fix-react-185-audit-loop",
+      "agent": "task:20260506-113915-8a6940",
+      "scope": [
+        "frontend/src/components/AuditLog.tsx"
+      ],
+      "startedAt": "2026-05-06T11:42:53+00:00",
+      "intent": "Fix dashboard React #185 max-update-depth crash \u2014 AuditLog has the same useMemo+useEffect pattern that was already fixed in AdminHome but never applied to AuditLog. Switching the effect dep from the memoized 'linked' array to the underlying"
+    }
+  ]
+}
