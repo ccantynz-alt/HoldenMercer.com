@@ -308,8 +308,11 @@ function SetupReadinessCard() {
 
   useEffect(() => {
     if (!githubKey || !selfRepairRepo) return
+    // Debounce: wait for the PAT field to settle before hitting the backend.
+    // Without this, every keystroke / mid-paste fires a check, which (when
+    // the PAT is partial/invalid) used to log the user out via 401 cascade.
     let cancelled = false
-    ;(async () => {
+    const debounceId = setTimeout(async () => {
       try {
         const [anth, pat] = await Promise.all([
           checkRepoSecret(selfRepairRepo, 'ANTHROPIC_API_KEY').catch(() => ({ set: null })),
@@ -319,8 +322,8 @@ function SetupReadinessCard() {
         setAnthState(anth.set)
         setPatState(pat.set)
       } catch { /* swallow */ }
-    })()
-    return () => { cancelled = true }
+    }, 800)
+    return () => { cancelled = true; clearTimeout(debounceId) }
   }, [selfRepairRepo, githubKey, refreshTick])
 
   const allGreen = anthState === true && patState === true

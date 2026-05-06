@@ -104,8 +104,12 @@ async def _put_file(client: httpx.AsyncClient, repo: str, path: str, content: st
     if sha:    body["sha"]    = sha
     if branch: body["branch"] = branch
     resp = await client.put(url, headers=headers, json=body)
+    if resp.status_code == 401:
+        # Don't leak a 401 to the SPA — that would log the user out. The
+        # session is fine; it's the GitHub PAT that's bad.
+        raise HTTPException(status_code=502, detail=f"GitHub PAT invalid or lacks scope to write {path}.")
     if resp.status_code >= 400:
-        raise HTTPException(status_code=resp.status_code, detail=f"Could not write {path}: {resp.text[:300]}")
+        raise HTTPException(status_code=502, detail=f"Could not write {path}: GitHub {resp.status_code}: {resp.text[:200]}")
     return resp.json()
 
 
@@ -220,8 +224,10 @@ async def dispatch_task(req: DispatchRequest):
                 if resp.status_code != 404:
                     break
 
+        if resp.status_code == 401:
+            raise HTTPException(status_code=502, detail="GitHub PAT invalid or expired.")
         if resp.status_code >= 400:
-            raise HTTPException(status_code=resp.status_code, detail=resp.text[:300])
+            raise HTTPException(status_code=502, detail=f"GitHub {resp.status_code}: {resp.text[:200]}")
 
     return {
         "task_id":     task_id,
@@ -389,9 +395,14 @@ async def cancel_task(req: RunIdRequest):
     url = f"{GITHUB_API}/repos/{central_repo}/actions/runs/{req.run_id}/cancel"
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(url, headers=headers)
-        if resp.status_code >= 400 and resp.status_code != 409:
-            # 409 = already finished. We treat it as a no-op success.
-            raise HTTPException(status_code=resp.status_code, detail=resp.text[:300])
+        if resp.status_code == 409:
+            # Already finished — treat as no-op success.
+            return {"cancelled": False, "run_id": req.run_id, "reason": "already finished"}
+        if resp.status_code == 401:
+            # GitHub PAT bad — return error body, NOT a 401 (would log user out).
+            raise HTTPException(status_code=502, detail="GitHub PAT invalid or expired.")
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"GitHub {resp.status_code}: {resp.text[:200]}")
     return {"cancelled": True, "run_id": req.run_id}
 
 
@@ -416,8 +427,10 @@ async def delete_task_run(req: RunIdRequest):
             f"{GITHUB_API}/repos/{central_repo}/actions/runs/{req.run_id}",
             headers=headers,
         )
+        if del_resp.status_code == 401:
+            raise HTTPException(status_code=502, detail="GitHub PAT invalid or expired.")
         if del_resp.status_code >= 400 and del_resp.status_code != 404:
-            raise HTTPException(status_code=del_resp.status_code, detail=del_resp.text[:300])
+            raise HTTPException(status_code=502, detail=f"GitHub {del_resp.status_code}: {del_resp.text[:200]}")
     return {"deleted": True, "run_id": req.run_id}
 
 
@@ -510,6 +523,12 @@ async def check_repo_secret(req: CheckSecretRequest):
     if resp.status_code == 404:
         return {"set": False, "secret_name": req.secret_name}
     if resp.status_code == 403:
-        # PAT lacks `secrets:read` — we can't tell. Return unknown.
         return {"set": None, "secret_name": req.secret_name, "reason": "PAT lacks admin scope"}
-    raise HTTPException(status_code=resp.status_code, detail=resp.text[:300])
+    if resp.status_code == 401:
+        # GitHub PAT invalid/expired. CRITICAL: do NOT propagate as 401 — that
+        # would trigger the SPA's authFetch to log the user out (it interprets
+        # any 401 as "session expired"). Return as content instead.
+        return {"set": None, "secret_name": req.secret_name, "reason": "GitHub PAT invalid or expired"}
+    # Generic upstream failure — convert to 502 so it doesn't get confused
+    # with our session auth layer.
+    raise HTTPException(status_code=502, detail=f"GitHub returned {resp.status_code}: {resp.text[:200]}")
