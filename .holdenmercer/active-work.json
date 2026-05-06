@@ -2,6 +2,16 @@
   "version": 1,
   "active": [
     {
+      "branch": "claude/harden-react-185-defenses",
+      "agent": "task:20260506-114033-247d39",
+      "scope": [
+        "frontend/src/components/AdminHome.tsx",
+        "frontend/src/components/Console.tsx"
+      ],
+      "startedAt": "2026-05-06T11:46:42+00:00",
+      "intent": "Complementary defenses for React-185 max-update-depth: harden AdminHome's loop-guard to permanently kill the activity-refresh loop (not just setError once), and stabilize Console's messages selector so empty threads don't return a fresh [] "
+    },
+    {
       "branch": "claude/fix-dashboard-error-capture",
       "agent": "task:20260506-114104-6a37c1",
       "scope": [
