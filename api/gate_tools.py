@@ -209,7 +209,22 @@ async def _run_gate(repo: str, branch: str | None, token: str) -> str:
     headers = _gh_headers(token)
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        target = branch or await _default_branch(client, repo, headers)
+        try:
+            target = branch or await _default_branch(client, repo, headers)
+        except httpx.HTTPStatusError as exc:
+            sc = exc.response.status_code
+            if sc == 401:
+                # NEVER propagate as 401 — would log the user out via authFetch.
+                return (
+                    f"[GitHub PAT invalid or expired. Open Settings → Code-host PAT, "
+                    f"regenerate with `repo` + `workflow` scopes, and try again.]"
+                )
+            if sc == 404:
+                return (
+                    f"[Repo {repo} not found, or your PAT can't access it. "
+                    f"Make sure the repo exists and your PAT scope includes it.]"
+                )
+            return f"[GitHub returned {sc} fetching repo info: {exc.response.text[:200]}]"
 
         # workflow_dispatch
         dispatch_url = (
@@ -220,18 +235,30 @@ async def _run_gate(repo: str, branch: str | None, token: str) -> str:
         )
         if dispatch_resp.status_code == 404:
             return (
-                f"[gate workflow not installed in {repo}. Call setup_gate_workflow first.]"
+                f"[Gate workflow not installed in {repo}. Open the project, click "
+                f"Tasks tab → Install gate workflow, then try again.]"
+            )
+        if dispatch_resp.status_code == 401:
+            return (
+                f"[GitHub PAT invalid or expired. Open Settings → Code-host PAT, "
+                f"regenerate with `repo` + `workflow` scopes, and try again.]"
             )
         if dispatch_resp.status_code >= 400:
-            return f"[dispatch failed: {dispatch_resp.status_code} {dispatch_resp.text[:300]}]"
+            return f"[Dispatch failed: GitHub {dispatch_resp.status_code}: {dispatch_resp.text[:200]}]"
 
         # The dispatch endpoint returns 204 with no body. Find the run we just kicked
         # off by querying the most recent workflow_dispatch run on this branch.
-        run = await _find_recent_run(client, repo, target, headers)
+        try:
+            run = await _find_recent_run(client, repo, target, headers)
+        except httpx.HTTPStatusError as exc:
+            sc = exc.response.status_code
+            if sc == 401:
+                return f"[GitHub PAT invalid or expired during run lookup.]"
+            return f"[GitHub returned {sc} looking up the run: {exc.response.text[:200]}]"
         if not run:
             return (
-                "[gate triggered, but no run appeared yet. "
-                "Try check_gate again in a few seconds.]"
+                "[Gate triggered, but no run appeared yet. "
+                "Refresh in a few seconds — the workflow takes a moment to register.]"
             )
 
         # Brief poll so Claude can see fast-finishing runs synchronously
@@ -240,9 +267,12 @@ async def _run_gate(repo: str, branch: str | None, token: str) -> str:
             if run.get("status") == "completed":
                 break
             await asyncio.sleep(RUN_POLL_INTERVAL_S)
-            run = await _get_run(client, repo, run["id"], headers)
+            try:
+                run = await _get_run(client, repo, run["id"], headers)
+            except httpx.HTTPStatusError as exc:
+                return f"[Polling failed: GitHub {exc.response.status_code}]"
             if not run:
-                return "[run vanished mid-poll; try check_gate]"
+                return "[Run vanished mid-poll; refresh to see the latest status.]"
 
     return _format_run(repo, run)
 
