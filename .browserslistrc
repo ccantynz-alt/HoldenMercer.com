@@ -1,7 +1,10 @@
-defaults
-not dead
-not op_mini all
-not IE 11
+# Browser compatibility targets for the HoldenMercer.com workspace.
+# Consumed by Vite/PostCSS/Babel inside frontend/ and surfaces as the
+# repo-level compatibility declaration for external scanners (gatetest.ai).
+#
+# Modern-evergreen baseline matching Vite 6 + React 18 expectations.
+> 0.5%
 last 2 versions
-iOS >= 14
-Safari >= 14
+Firefox ESR
+not dead
+not IE 11

@@ -1,0 +1,20 @@
+{
+  "name": "holdenmercer-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Repo-root workspace metadata for HoldenMercer.com. The application lives in frontend/. This file declares engines.node and browserslist at the repo root for external compatibility scanners (gatetest.ai). No runtime deps, no scripts.",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "browserslist": [
+    "> 0.5%",
+    "last 2 versions",
+    "Firefox ESR",
+    "not dead",
+    "not IE 11"
+  ],
+  "workspaces": [
+    "frontend"
+  ]
+}
