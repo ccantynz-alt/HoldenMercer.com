@@ -26,6 +26,7 @@ import { LinkRepoModal } from './LinkRepoModal'
 import { ResizeHandle } from './ResizeHandle'
 import { AdminHome } from './AdminHome'
 import { AuditLog } from './AuditLog'
+import { MissionControl } from './MissionControl'
 import { ProjectReadiness } from './ProjectReadiness'
 import { SectionErrorBoundary } from './SectionErrorBoundary'
 import { dispatchTask } from '../lib/jobs'
@@ -222,7 +223,7 @@ function renderPane(tab: TabId, projectId: string, switchToConsole: () => void) 
  * when no project is selected. This is the operator's "command center"
  * view; per-project work happens after picking a project from the sidebar.
  */
-type SystemTab = 'home' | 'audit'
+type SystemTab = 'mission' | 'projects' | 'audit'
 
 function SystemHome({
   onNewProject, onOpenProject, onOpenSettings,
@@ -231,15 +232,21 @@ function SystemHome({
   onOpenProject: (id: string) => void
   onOpenSettings: () => void
 }) {
-  const [tab, setTab] = useState<SystemTab>('home')
+  const [tab, setTab] = useState<SystemTab>('mission')
   return (
     <div>
       <nav className="hm-tabs" style={{ marginBottom: 0, borderBottom: '1px solid var(--border, #2a2a2a)' }}>
         <button
-          className={`hm-tab${tab === 'home' ? ' is-active' : ''}`}
-          onClick={() => setTab('home')}
+          className={`hm-tab${tab === 'mission' ? ' is-active' : ''}`}
+          onClick={() => setTab('mission')}
         >
-          Home
+          Mission
+        </button>
+        <button
+          className={`hm-tab${tab === 'projects' ? ' is-active' : ''}`}
+          onClick={() => setTab('projects')}
+        >
+          Projects
         </button>
         <button
           className={`hm-tab${tab === 'audit' ? ' is-active' : ''}`}
@@ -248,15 +255,25 @@ function SystemHome({
           Audit log
         </button>
       </nav>
-      {tab === 'home' ? (
-        <SectionErrorBoundary name="Home">
+      {tab === 'mission' && (
+        <SectionErrorBoundary name="Mission Control">
+          <MissionControl
+            onNewProject={onNewProject}
+            onOpenProject={onOpenProject}
+            onOpenSettings={onOpenSettings}
+          />
+        </SectionErrorBoundary>
+      )}
+      {tab === 'projects' && (
+        <SectionErrorBoundary name="Projects">
           <AdminHome
             onNewProject={onNewProject}
             onOpenProject={onOpenProject}
             onOpenSettings={onOpenSettings}
           />
         </SectionErrorBoundary>
-      ) : (
+      )}
+      {tab === 'audit' && (
         <SectionErrorBoundary name="Audit log">
           <AuditLog />
         </SectionErrorBoundary>
