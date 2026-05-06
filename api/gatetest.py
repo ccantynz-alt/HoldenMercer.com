@@ -1,26 +1,37 @@
 """
-gatetest.ai integration — proxy endpoint that calls the user's gatetest.ai API.
+gatetest.ai integration — proxy endpoint that calls the user's gatetest.ai API,
+PLUS a webhook receiver that lets gatetest.ai push scan results to HM
+asynchronously.
 
-The user's gt_live_... key is stored in the SPA (Settings → gatetest.ai) and
-sent in each request body. Backend forwards to gatetest.ai/api/v1 and returns
-the structured findings to the dashboard.
+Three endpoints:
 
-Why proxy instead of calling direct from the browser:
-  • CORS — gatetest.ai may not whitelist arbitrary origins
-  • Centralised error normalization (401 → 502 so the SPA doesn't logout)
-  • Request shape stability if gatetest.ai's API evolves
+  POST /api/gatetest/scan      — proxy to gatetest.ai/api/v1/scan (synchronous)
+  POST /api/gatetest/webhook   — gatetest.ai → HM async push of scan results
+  POST /api/gatetest/latest    — read the most-recent scan for a repo from
+                                 .holdenmercer/gatetest-latest.json in that repo
+
+Webhook flow:
+  1. User configures gatetest.ai with the URL: https://www.holdenmercer.com/api/gatetest/webhook
+  2. gatetest.ai posts scan results there as JSON
+  3. We persist to .holdenmercer/gatetest-latest.json in the target repo (so
+     the repo is the database; results survive serverless cold starts)
+  4. Frontend reads the file on Gate-tab open + after each manual scan
 """
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
+import os
 from typing import Any, Literal
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from core.security import require_api_key
+from api.console_tools import GITHUB_API, _gh_headers
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/gatetest", tags=["gatetest"])
@@ -134,3 +145,145 @@ async def scan(req: ScanRequest) -> dict[str, Any]:
         )
 
     return resp.json()
+
+
+# ── Webhook receiver ────────────────────────────────────────────────────────
+
+LATEST_FILE_PATH = ".holdenmercer/gatetest-latest.json"
+
+
+def _extract_target_repo(payload: dict) -> str | None:
+    """Pull the GitHub owner/name from a webhook payload. gatetest.ai may use
+    different field names depending on tier/version; try the most likely keys
+    in order of specificity."""
+    repo_url = payload.get("repo_url") or payload.get("repository") or payload.get("repo")
+    if not repo_url:
+        return None
+    # Strip "https://github.com/" / ".git" / trailing slashes; tolerate either
+    # the URL form or "owner/name" form.
+    s = str(repo_url).strip()
+    for prefix in ("https://github.com/", "http://github.com/", "git@github.com:"):
+        if s.startswith(prefix):
+            s = s[len(prefix):]
+            break
+    s = s.rstrip("/")
+    if s.endswith(".git"):
+        s = s[:-4]
+    return s if "/" in s else None
+
+
+@router.post("/webhook")
+async def receive_webhook(
+    payload: dict,
+    x_gatetest_signature: str | None = Header(default=None),
+):
+    """Receive a scan result from gatetest.ai. Persists to
+    .holdenmercer/gatetest-latest.json in the target repo so the dashboard
+    can read it without polling gatetest.ai's API.
+
+    Auth: optional HMAC signature in X-Gatetest-Signature. If
+    GATETEST_WEBHOOK_SECRET env var is set on the backend, signature must
+    match. Otherwise we accept the payload (open mode — fine for single-user).
+
+    Note: this endpoint does NOT require require_api_key — gatetest.ai can't
+    send our session token. Anyone can POST. Mitigation: HMAC signature when
+    a secret is configured.
+    """
+    secret = os.environ.get("GATETEST_WEBHOOK_SECRET", "").strip()
+    if secret:
+        import hashlib
+        import hmac
+        expected = hmac.new(
+            secret.encode("utf-8"),
+            json.dumps(payload, sort_keys=True).encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        provided = (x_gatetest_signature or "").replace("sha256=", "").strip()
+        if not hmac.compare_digest(expected, provided):
+            raise HTTPException(status_code=401, detail="Invalid webhook signature.")
+
+    target_repo = _extract_target_repo(payload)
+    if not target_repo:
+        raise HTTPException(
+            status_code=400,
+            detail="Webhook payload missing repo_url / repository / repo field.",
+        )
+
+    # Persist to the target repo. Uses the centrally-configured PAT so we
+    # can write to repos the user owns.
+    from core.config import get_settings as _get_settings
+    token = _get_settings().gluecron_github_token
+    if not token:
+        raise HTTPException(
+            status_code=500,
+            detail="No backend GitHub token configured (env GLUECRON_GITHUB_TOKEN). Webhook can't persist results.",
+        )
+    headers = _gh_headers(token)
+
+    contents_url = f"{GITHUB_API}/repos/{target_repo}/contents/{LATEST_FILE_PATH}"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        # Need the existing SHA to overwrite (Contents API requirement).
+        head = await client.get(contents_url, headers=headers)
+        sha = head.json().get("sha") if head.status_code == 200 else None
+
+        body: dict[str, Any] = {
+            "message": "chore(gatetest): record latest scan results",
+            "content": base64.b64encode(
+                json.dumps(payload, indent=2).encode("utf-8")
+            ).decode("ascii"),
+        }
+        if sha:
+            body["sha"] = sha
+
+        write = await client.put(contents_url, headers=headers, json=body)
+        if write.status_code >= 400:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Could not persist webhook to {target_repo}: {write.status_code} {write.text[:200]}",
+            )
+
+    logger.info(
+        "gatetest.ai webhook persisted: repo=%s totalIssues=%s modules=%s",
+        target_repo,
+        payload.get("totalIssues"),
+        len(payload.get("modules", [])),
+    )
+    return {"received": True, "target_repo": target_repo, "stored_at": LATEST_FILE_PATH}
+
+
+class LatestRequest(BaseModel):
+    repo:         str
+    branch:       str | None = None
+    github_token: str = ""
+
+
+@router.post("/latest", dependencies=[Depends(require_api_key)])
+async def get_latest(req: LatestRequest):
+    """Read the most-recent webhook-pushed scan for a repo. Returns the
+    payload as gatetest.ai sent it, or {found: false} if no scan has been
+    received yet."""
+    if "/" not in req.repo:
+        raise HTTPException(status_code=400, detail="repo must be 'owner/name'.")
+    token = req.github_token or ""
+    if not token:
+        from core.config import get_settings as _get_settings
+        token = _get_settings().gluecron_github_token
+    if not token:
+        raise HTTPException(status_code=400, detail="No GitHub token configured.")
+
+    headers = {**_gh_headers(token), "Accept": "application/vnd.github.raw"}
+    params = {"ref": req.branch} if req.branch else None
+    url = f"{GITHUB_API}/repos/{req.repo}/contents/{LATEST_FILE_PATH}"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(url, headers=headers, params=params)
+    if resp.status_code == 404:
+        return {"found": False}
+    if resp.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not read latest scan: GitHub {resp.status_code}",
+        )
+    try:
+        return {"found": True, "payload": json.loads(resp.text)}
+    except json.JSONDecodeError:
+        return {"found": False, "error": "stored file isn't valid JSON"}
