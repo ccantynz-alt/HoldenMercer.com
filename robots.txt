@@ -1,5 +1,9 @@
 # Holden Mercer is a single-user power tool, not a content site.
-# Crawlers welcome on the landing page; skip dashboard routes.
+# Crawlers are welcome on the landing page but skip the dashboard + API.
+#
+# This is a root-level mirror of frontend/public/robots.txt so that
+# scanners (and any host serving the repo statically) find a robots
+# directive at /robots.txt without depending on the Vite build.
 
 User-agent: *
 Disallow: /api/
