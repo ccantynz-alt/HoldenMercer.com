@@ -1,0 +1,8 @@
+# Holden Mercer is a single-user power tool, not a content site.
+# Crawlers welcome on the landing page; skip dashboard routes.
+
+User-agent: *
+Disallow: /api/
+Disallow: /#dashboard
+
+Sitemap: https://www.holdenmercer.com/sitemap.xml
