@@ -49,35 +49,43 @@ export function AdminHome({ onNewProject, onOpenProject, onOpenSettings }: Props
     prs:     OpenPR[]
     runs:    InProgressRun[]
   }>>({})
+  const [refreshTick, setRefreshTick] = useState(0)
+  const refresh = () => setRefreshTick((n) => n + 1)
 
-  const refresh = useMemo(() => async () => {
-    if (linked.length === 0) return
+  // Fetch on mount + when projects/key change + when manual refresh fires.
+  // Depend on `projects` (zustand-stable) NOT `linked` (useMemo, may rebuild).
+  // useMemo + useEffect was the React-185 max-update-depth source.
+  useEffect(() => {
+    const targets = projects.filter((p) => !!p.repo)
+    if (targets.length === 0) return
     if (!githubKey) {
       setError('Add a code-host PAT in Settings to see activity.')
       return
     }
+    let cancelled = false
     setLoading(true)
     setError(null)
-    try {
-      const results = await Promise.all(linked.map(async (p) => {
-        const repo   = p.repo!
-        const branch = p.branch || null
-        const [commits, prs, runs] = await Promise.all([
-          recentCommits(repo, branch, 5).catch(() => []),
-          openPullRequests(repo, 5).catch(() => []),
-          inProgressRuns(repo, 5).catch(() => []),
-        ])
-        return [p.id, { commits, prs, runs }] as const
-      }))
-      setByProject(Object.fromEntries(results))
-    } catch (err) {
-      setError((err as Error).message)
-    } finally {
-      setLoading(false)
-    }
-  }, [linked, githubKey])
-
-  useEffect(() => { refresh() }, [refresh])
+    ;(async () => {
+      try {
+        const results = await Promise.all(targets.map(async (p) => {
+          const repo   = p.repo!
+          const branch = p.branch || null
+          const [commits, prs, runs] = await Promise.all([
+            recentCommits(repo, branch, 5).catch(() => []),
+            openPullRequests(repo, 5).catch(() => []),
+            inProgressRuns(repo, 5).catch(() => []),
+          ])
+          return [p.id, { commits, prs, runs }] as const
+        }))
+        if (!cancelled) setByProject(Object.fromEntries(results))
+      } catch (err) {
+        if (!cancelled) setError((err as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [projects, githubKey, refreshTick])
 
   // Build the unified activity feed
   const activity: ActivityEvent[] = useMemo(() => {
