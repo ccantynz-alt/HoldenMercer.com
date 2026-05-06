@@ -25,13 +25,24 @@ from core.security import require_api_key
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/gatetest", tags=["gatetest"])
 
-GATETEST_API = "https://gatetest.ai/api/v1"
+# Default API base. Per the public docs, both gatetest.ai and gatetest.io
+# advertise the same /api/v1/scan endpoint. We try the user-supplied override
+# first, fall back to the known-good public URL.
+DEFAULT_GATETEST_API = "https://www.gatetest.ai/api/v1"
+FALLBACK_BASES = [
+    "https://www.gatetest.ai/api/v1",
+    "https://gatetest.ai/api/v1",
+    "https://gatetest.io/api/v1",
+    "https://api.gatetest.ai/v1",
+]
 
 
 class ScanRequest(BaseModel):
     repo_url:     str
     tier:         Literal["quick", "full"] = "full"
     gatetest_key: str = ""
+    # Optional override of the API base URL — for self-hosted gatetest.ai.
+    api_base:     str = ""
 
 
 @router.post("/scan", dependencies=[Depends(require_api_key)])
@@ -58,13 +69,41 @@ async def scan(req: ScanRequest) -> dict[str, Any]:
     }
     body = {"repo_url": req.repo_url, "tier": req.tier}
 
-    # Full tier can take up to 60s — give httpx a generous timeout.
-    async with httpx.AsyncClient(timeout=90.0) as client:
-        try:
-            resp = await client.post(f"{GATETEST_API}/scan", headers=headers, json=body)
-        except httpx.HTTPError as exc:
-            logger.exception("gatetest.ai request failed")
-            raise HTTPException(status_code=502, detail=f"gatetest.ai unreachable: {exc}")
+    # Try the user's override first (if any), then walk fallback bases until
+    # one returns a non-404. Some gatetest.ai install variants expose the API
+    # at different subdomains (gatetest.ai, www.gatetest.ai, gatetest.io,
+    # api.gatetest.ai) so we probe instead of failing on the first 404.
+    bases = [req.api_base.strip()] if req.api_base.strip() else []
+    for b in FALLBACK_BASES:
+        if b not in bases:
+            bases.append(b)
+
+    last_404_body = ""
+    resp = None
+    async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
+        for base in bases:
+            url = f"{base.rstrip('/')}/scan"
+            try:
+                attempt = await client.post(url, headers=headers, json=body)
+            except httpx.HTTPError as exc:
+                logger.warning("gatetest.ai POST to %s failed: %s", url, exc)
+                continue
+            if attempt.status_code == 404:
+                last_404_body = attempt.text[:200]
+                logger.info("gatetest.ai 404 at %s — trying next base", url)
+                continue
+            resp = attempt
+            break
+
+    if resp is None:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"gatetest.ai scan endpoint not found at any known base "
+                f"({', '.join(bases)}). The API may be unavailable or your "
+                f"tier may not include scans yet. Last response: {last_404_body or 'no response'}"
+            ),
+        )
 
     # Map upstream errors to our 502 so they don't trigger the SPA's authFetch
     # auto-logout (which fires on any 401, regardless of source).
