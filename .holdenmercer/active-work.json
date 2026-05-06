@@ -13,16 +13,6 @@
       "intent": "Fix gatetest.ai 'seo' module (9 findings) by mirroring the existing frontend SEO assets at the repo root where the scanner looks: add /robots.txt, /sitemap.xml, and /app/layout.html with full OG tags (og:title, og:description, og:image), Tw"
     },
     {
-      "branch": "claude/compat-browserslist-engines",
-      "agent": "task:20260506-144839-7c9203",
-      "scope": [
-        ".browserslistrc",
-        "package.json"
-      ],
-      "startedAt": "2026-05-06T14:49:47+00:00",
-      "intent": "Fix gatetest.ai 'compatibility' module: add root .browserslistrc and root package.json with engines.node so the scanner finds compat config at repo root (frontend/package.json already has engines.node but scanner looks at root)."
-    },
-    {
       "branch": "claude/gatetest-repair-seo-compat-ci",
       "agent": "task:20260506-144825-d6306f",
       "scope": [
