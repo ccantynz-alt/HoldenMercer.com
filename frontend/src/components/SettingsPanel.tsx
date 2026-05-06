@@ -91,20 +91,29 @@ export function SettingsPanel({ open, onClose }: Props) {
         </section>
 
         <section className="hm-drawer-section">
-          <h3 className="hm-drawer-section-title">GitHub (GlueCron)</h3>
+          <h3 className="hm-drawer-section-title">Code-host PAT (GitHub or GlueCron)</h3>
           <p className="hm-drawer-help">
-            A personal access token with <code>repo</code> scope. Lets the Console
-            read files from any of your repositories. Get one at{' '}
+            Personal access token for whichever code host you're using.
+            Lets the Console read + write your repos.
+            <br />
+            <strong>GitHub</strong>: <code>github_pat_…</code> with <code>repo</code> scope —{' '}
             <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">
               github.com/settings/tokens
             </a>.
+            <br />
+            <strong>GlueCron</strong>: <code>glc_…</code> from{' '}
+            <a href="https://gluecron.com/settings/tokens" target="_blank" rel="noreferrer">
+              gluecron.com/settings/tokens
+            </a>.
+            <br />
+            Holden Mercer auto-detects which host based on the backend's <code>CODE_HOST</code> env.
           </p>
           <input
             className="hm-input"
             type="password"
             value={githubToken}
             onChange={(e) => setGhToken(e.target.value)}
-            placeholder="github_pat_…"
+            placeholder="github_pat_… or glc_…"
             autoComplete="off"
             spellCheck={false}
           />
@@ -116,7 +125,7 @@ export function SettingsPanel({ open, onClose }: Props) {
             type="text"
             value={githubOrg}
             onChange={(e) => setGhOrg(e.target.value)}
-            placeholder="GitHub username or org (e.g. ccantynz-alt)"
+            placeholder="Username or org (e.g. ccantynz-alt)"
             autoComplete="off"
             spellCheck={false}
             style={{ marginTop: 8 }}

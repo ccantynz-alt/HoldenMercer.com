@@ -32,6 +32,10 @@ function token(): string {
   return useSettings.getState().githubToken || ''
 }
 
+function org(): string {
+  return useSettings.getState().githubOrg || ''
+}
+
 async function post<T>(path: string, body: Record<string, unknown>): Promise<T> {
   const res = await authFetch(path, {
     method: 'POST',
@@ -47,6 +51,7 @@ async function post<T>(path: string, body: Record<string, unknown>): Promise<T> 
 export async function listRepos(search?: string): Promise<RepoSummary[]> {
   const { repos } = await post<{ repos: RepoSummary[] }>('/api/repo/repos', {
     search: search ?? null,
+    org:    org() || null,
   })
   return repos
 }
