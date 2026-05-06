@@ -25,6 +25,7 @@ import { TaskSwarm } from './TaskSwarm'
 import { LinkRepoModal } from './LinkRepoModal'
 import { ResizeHandle } from './ResizeHandle'
 import { AdminHome } from './AdminHome'
+import { AuditLog } from './AuditLog'
 import { dispatchTask } from '../lib/jobs'
 
 type TabId = 'brief' | 'planner' | 'console' | 'preview' | 'gate' | 'tasks' | 'memory' | 'swarm'
@@ -77,7 +78,7 @@ export function ProjectShell({ onNewProject, onOpenSettings }: ProjectShellProps
 
   if (!project) {
     return (
-      <AdminHome
+      <SystemHome
         onNewProject={() => onNewProject?.()}
         onOpenProject={(id) => setActive(id)}
         onOpenSettings={() => onOpenSettings?.()}
@@ -205,6 +206,50 @@ function renderPane(tab: TabId, projectId: string, switchToConsole: () => void) 
        : tab === 'tasks'    ? <Tasks    projectId={projectId} />
        : tab === 'memory'   ? <Memory   projectId={projectId} />
        : <TaskSwarm />
+}
+
+/**
+ * SystemHome — wraps AdminHome + AuditLog with a top-level toggle. Shown
+ * when no project is selected. This is the operator's "command center"
+ * view; per-project work happens after picking a project from the sidebar.
+ */
+type SystemTab = 'home' | 'audit'
+
+function SystemHome({
+  onNewProject, onOpenProject, onOpenSettings,
+}: {
+  onNewProject: () => void
+  onOpenProject: (id: string) => void
+  onOpenSettings: () => void
+}) {
+  const [tab, setTab] = useState<SystemTab>('home')
+  return (
+    <div>
+      <nav className="hm-tabs" style={{ marginBottom: 0, borderBottom: '1px solid var(--border, #2a2a2a)' }}>
+        <button
+          className={`hm-tab${tab === 'home' ? ' is-active' : ''}`}
+          onClick={() => setTab('home')}
+        >
+          Home
+        </button>
+        <button
+          className={`hm-tab${tab === 'audit' ? ' is-active' : ''}`}
+          onClick={() => setTab('audit')}
+        >
+          Audit log
+        </button>
+      </nav>
+      {tab === 'home' ? (
+        <AdminHome
+          onNewProject={onNewProject}
+          onOpenProject={onOpenProject}
+          onOpenSettings={onOpenSettings}
+        />
+      ) : (
+        <AuditLog />
+      )}
+    </div>
+  )
 }
 
 async function onboardProject(repo: string, name: string, branch?: string) {
