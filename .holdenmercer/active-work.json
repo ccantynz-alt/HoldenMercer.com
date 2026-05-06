@@ -2,15 +2,6 @@
   "version": 1,
   "active": [
     {
-      "branch": "claude/expose-nuclear-reset-rescue",
-      "agent": "task:20260506-120855-c2111d",
-      "scope": [
-        "frontend/src/App.jsx"
-      ],
-      "startedAt": "2026-05-06T12:12:13+00:00",
-      "intent": "Wire up the 4th 'nuclearReset' fallback arg in App.jsx \u2014 currently ErrorBoundary exposes it but App.jsx never destructures or renders it, so users stuck in a React-185 crash loop caused by corrupted API keys have no UI escape hatch. Complem"
-    },
-    {
       "branch": "claude/include-component-stack-in-self-repair",
       "agent": "task:20260506-120712-58ddc4",
       "scope": [
