@@ -77,7 +77,7 @@ export function Memory({ projectId }: Props) {
         <h2 className="hm-placeholder-title">No repo linked.</h2>
         <p className="hm-placeholder-body">
           Memory lives in <code>.holdenmercer/sessions/</code> in this project's
-          repo. Click <strong>+ Link a GitHub repo</strong> above the tabs to enable
+          repo. Click <strong>+ Link a repo</strong> above the tabs to enable
           persistent memory — every Console turn gets committed back so future
           sessions can read it.
         </p>

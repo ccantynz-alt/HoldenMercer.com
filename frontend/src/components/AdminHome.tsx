@@ -175,7 +175,7 @@ export function AdminHome({ onNewProject, onOpenProject, onOpenSettings }: Props
         <div className="hm-tasks-empty">
           You have {projects.length} project{projects.length === 1 ? '' : 's'},
           but none are linked to a repo yet. Open one and click{' '}
-          <strong>+ Link a GitHub repo</strong> to start seeing activity here.
+          <strong>+ Link a repo</strong> to start seeing activity here.
         </div>
       ) : !githubKey ? (
         <div className="hm-tasks-empty">

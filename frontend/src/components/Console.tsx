@@ -862,12 +862,12 @@ function ConsoleEmpty({
       )}
       {hasKey && !hasGithub && (
         <p className="hm-console-empty-body">
-          Tip: add a GitHub PAT in Settings so Claude can read and write your repos.
+          Tip: add a code-host PAT in Settings so Claude can read and write your repos.
         </p>
       )}
       {hasGithub && !hasRepo && (
         <p className="hm-console-empty-body">
-          This project isn't linked to a repo yet. Click <strong>+ Link a GitHub repo</strong>{' '}
+          This project isn't linked to a repo yet. Click <strong>+ Link a repo</strong>{' '}
           above the tabs and Claude can commit changes directly.
         </p>
       )}

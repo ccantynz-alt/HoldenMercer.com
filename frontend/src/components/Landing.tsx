@@ -68,7 +68,7 @@ export function Landing({ onEnter }: LandingProps) {
 
         <div className="lp-hero-stats">
           <div><strong>Opus 4.7</strong><span>full tool use</span></div>
-          <div><strong>GlueCron</strong><span>GitHub is memory</span></div>
+          <div><strong>GlueCron</strong><span>repo is memory</span></div>
           <div><strong>Gate</strong><span>lint / type / test</span></div>
           <div><strong>Repair</strong><span>auto-fix on fail</span></div>
         </div>
@@ -97,7 +97,7 @@ export function Landing({ onEnter }: LandingProps) {
         <ul className="lp-stack-list">
           <li><b>Frontend</b> · React + Vite + WebGL Liquid Orb · 120 fps shader feedback</li>
           <li><b>Brains</b> · Anthropic Opus 4.7 with extended thinking + full tool use (file r/w, bash, search, web fetch, cross-repo read)</li>
-          <li><b>Memory</b> · GlueCron — GitHub <em>is</em> the database. Sessions write summaries back to the repo. New sessions resume by reading them.</li>
+          <li><b>Memory</b> · GlueCron — your repo <em>is</em> the database. Sessions write summaries back to it. New sessions resume by reading them.</li>
           <li><b>Gate</b> · Programmatic checks (lint + typecheck + tests) on every change. No green, no commit.</li>
           <li><b>Repair</b> · Shadow Architect loop · auto-debug on failure, up to 5 iterations</li>
           <li><b>Resilience</b> · Bedrock fail-over · zero downtime when Anthropic is overloaded</li>
@@ -111,7 +111,7 @@ export function Landing({ onEnter }: LandingProps) {
         <p>
           Most "AI builders" are thin shells around a chat box that forgets what you
           told it last week. This one is built the other way around — Claude is a
-          tool inside a workshop you control. Your projects live in your GitHub.
+          tool inside a workshop you control. Your projects live in your own repo.
           Your decisions are committed to a branch with a timestamp. Your API key
           stays in your browser. Nothing reports back to a SaaS dashboard you
           don't own. That's the line: <em>your work, your repo, your machine.</em>
@@ -126,7 +126,7 @@ export function Landing({ onEnter }: LandingProps) {
         <span className="lp-footer-dot">·</span>
         <span>holdenmercer.com</span>
         <span className="lp-footer-dot">·</span>
-        <a href="https://github.com/ccantynz-alt" target="_blank" rel="noreferrer">github</a>
+        <span>powered by GlueCron</span>
       </footer>
     </div>
   )

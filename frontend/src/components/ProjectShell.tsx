@@ -100,11 +100,11 @@ export function ProjectShell({ onNewProject, onOpenSettings }: ProjectShellProps
           <button
             className="hm-repo-link"
             onClick={() => setLinkOpen(true)}
-            title={project.repo ? 'Repo linked — click to change' : 'Link to a GitHub repo'}
+            title={project.repo ? 'Repo linked — click to change' : 'Link to a repo'}
           >
             {project.repo
               ? <>📦 <code>{project.repo}</code> · <span className="hm-repo-branch">{project.branch || 'main'}</span></>
-              : <>+ Link a GitHub repo</>}
+              : <>+ Link a repo</>}
           </button>
           {project.repo && (
             <button

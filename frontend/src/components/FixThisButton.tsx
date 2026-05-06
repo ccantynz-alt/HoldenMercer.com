@@ -134,7 +134,7 @@ export function FixThisButton({ prefill, onDispatched }: Props) {
                 className="hm-textarea"
                 value={request}
                 onChange={(e) => setRequest(e.target.value)}
-                placeholder={`e.g. "the Settings drawer doesn't save my GitHub PAT — it forgets it on reload"\n\nor: "add a 'duplicate project' button on AdminHome project cards"\n\nDescribe what's broken or what should change. Specific = good.`}
+                placeholder={`e.g. "the Settings drawer doesn't save my code-host PAT — it forgets it on reload"\n\nor: "add a 'duplicate project' button on AdminHome project cards"\n\nDescribe what's broken or what should change. Specific = good.`}
                 rows={7}
                 autoCapitalize="sentences"
                 autoCorrect="on"

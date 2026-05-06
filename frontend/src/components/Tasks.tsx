@@ -112,8 +112,8 @@ export function Tasks({ projectId }: Props) {
       <div className="hm-placeholder">
         <h2 className="hm-placeholder-title">No repo linked.</h2>
         <p className="hm-placeholder-body">
-          Background tasks run as GitHub Actions in your project's repo. Click{' '}
-          <strong>+ Link a GitHub repo</strong> above the tabs to set one up.
+          Background tasks run as workflows in your project's repo. Click{' '}
+          <strong>+ Link a repo</strong> above the tabs to set one up.
         </p>
       </div>
     )

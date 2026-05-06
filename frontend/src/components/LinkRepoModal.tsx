@@ -35,7 +35,7 @@ export function LinkRepoModal({ projectId, open, onClose }: Props) {
   useEffect(() => {
     if (!open) return
     if (!githubKey) {
-      setError('Add a GitHub PAT in Settings first.')
+      setError('Add a code-host PAT in Settings first.')
       return
     }
     setLoading(true)
@@ -83,7 +83,7 @@ export function LinkRepoModal({ projectId, open, onClose }: Props) {
     <div className="hm-modal-backdrop" onClick={onClose}>
       <div className="hm-modal" onClick={(e) => e.stopPropagation()}>
         <h2 className="hm-modal-title">
-          {project.repo ? `Linked to ${project.repo}` : 'Link a GitHub repo'}
+          {project.repo ? `Linked to ${project.repo}` : 'Link a repo'}
         </h2>
         <p className="hm-modal-lede">
           The Brief and session summaries get committed to <code>.holdenmercer/</code>
