@@ -2,6 +2,21 @@
   "version": 1,
   "active": [
     {
+      "branch": "claude/gatetest-repair-seo-compat-ci",
+      "agent": "task:20260506-144825-d6306f",
+      "scope": [
+        "robots.txt",
+        "sitemap.xml",
+        "index.html",
+        ".browserslistrc",
+        "package.json",
+        ".github/workflows/holden-mercer-cron.yml",
+        ".github/workflows/holden-mercer-task.yml"
+      ],
+      "startedAt": "2026-05-06T14:49:37+00:00",
+      "intent": "Self-repair from gatetest.ai full scan: fix 3 failed modules. SEO: add root robots.txt, sitemap.xml, index.html (with full OG/Twitter/JSON-LD tags) so the scanner finds SEO assets at repo root. Compatibility: add root .browserslistrc + root"
+    },
+    {
       "branch": "claude/gatetest-self-repair-seo-compat-ci",
       "agent": "task:20260506-144543-223d7c",
       "scope": [
