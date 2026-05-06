@@ -212,6 +212,7 @@ export function Console({ projectId }: Props) {
       memories:    memorySummaries,
       invariants,
       preflight,
+      globalPrefs: useSettings.getState().globalPrefs,
     })
 
     // Flywheel-first: on the FIRST turn of a fresh thread, prepend a synthetic
@@ -912,7 +913,7 @@ function ConsoleEmpty({
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function buildSystemPrompt({
-  name, description, repo, branch, autonomy, memories, invariants, preflight,
+  name, description, repo, branch, autonomy, memories, invariants, preflight, globalPrefs,
 }: {
   name:        string
   description: string
@@ -921,6 +922,7 @@ function buildSystemPrompt({
   autonomy:    string
   memories:    string[]
   invariants:  string | null
+  globalPrefs: string
   preflight:   {
     commits: RecentCommit[]
     prs:     OpenPR[]
@@ -931,6 +933,10 @@ function buildSystemPrompt({
   const parts: string[] = [
     `You are the build agent for the project "${name}". You're running inside Holden Mercer — a console for power users to build with Claude.`,
   ]
+
+  if (globalPrefs.trim()) {
+    parts.push(`\nUser's global preferences (apply to ALL projects):\n${globalPrefs.trim()}`)
+  }
 
   if (description.trim()) {
     parts.push(`\nProject brief:\n${description.trim()}`)

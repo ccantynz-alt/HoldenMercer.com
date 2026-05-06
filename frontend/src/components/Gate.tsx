@@ -366,10 +366,14 @@ function GatetestPanel({ repo }: { repo: string | null }) {
     if (!repo) return
     setDispatching(m.name)
     try {
+      const globalPrefs = useSettings.getState().globalPrefs
+      const briefPrefix = globalPrefs.trim()
+        ? `User's global preferences (apply to ALL projects):\n${globalPrefs.trim()}\n\n---\n\n`
+        : ''
       const dispatched = await dispatchTask({
         repo,
         prompt:    fixModulePrompt(repo, m, tier),
-        brief:     `gatetest.ai found ${m.issues ?? 0} issue(s) in module "${m.name}" — auto-repair task dispatched from HM Gate tab.`,
+        brief:     briefPrefix + `gatetest.ai found ${m.issues ?? 0} issue(s) in module "${m.name}" — auto-repair task dispatched from HM Gate tab.`,
         max_iters: 30,
       })
       alert(
@@ -390,10 +394,14 @@ function GatetestPanel({ repo }: { repo: string | null }) {
     if (!repo) return
     setDispatching('__all__')
     try {
+      const globalPrefs = useSettings.getState().globalPrefs
+      const briefPrefix = globalPrefs.trim()
+        ? `User's global preferences (apply to ALL projects):\n${globalPrefs.trim()}\n\n---\n\n`
+        : ''
       const dispatched = await dispatchTask({
         repo,
         prompt:    fixAllPrompt(repo, failedModules, tier),
-        brief:     `gatetest.ai found ${failedModules.length} failed modules — auto-repair task dispatched from HM Gate tab.`,
+        brief:     briefPrefix + `gatetest.ai found ${failedModules.length} failed modules — auto-repair task dispatched from HM Gate tab.`,
         max_iters: 50,
       })
       alert(
