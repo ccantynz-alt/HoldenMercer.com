@@ -80,6 +80,8 @@ export function SettingsPanel({ open, onClose }: Props) {
           <button className="hm-icon-btn" onClick={onClose} aria-label="Close">×</button>
         </div>
 
+        <QuickSetup />
+
         <section className="hm-drawer-section">
           <h3 className="hm-drawer-section-title">Anthropic API key</h3>
           <p className="hm-drawer-help">
@@ -345,5 +347,117 @@ export function SettingsPanel({ open, onClose }: Props) {
         </section>
       </div>
     </div>
+  )
+}
+
+/** QuickSetup — single textarea that auto-detects keys from a paste.
+ *
+ * The user pastes ANYTHING (an email, a list of secrets, output from
+ * `env`, a screenshot's text). HM sniffs key formats by prefix and
+ * routes each match to the right field:
+ *   sk-ant-…       → Anthropic API key
+ *   github_pat_…   → Code-host PAT
+ *   ghp_…          → Code-host PAT (classic)
+ *   glc_…          → Code-host PAT (GlueCron)
+ *   gt_live_…      → gatetest.ai key
+ *
+ * Saves all three at once via the settings store (which auto-syncs to
+ * the keychain — keys survive updates / hard resets / nuclear resets).
+ */
+function QuickSetup() {
+  const [text, setText] = useState('')
+  const [showSection, setShow] = useState(false)
+  const setAnth   = useSettings((s) => s.setAnthropicKey)
+  const setGh     = useSettings((s) => s.setGithubToken)
+  const setGt     = useSettings((s) => s.setGatetestKey)
+
+  const detected = (() => {
+    const out: { kind: string; value: string; label: string }[] = []
+    const anth = text.match(/sk-ant-[a-zA-Z0-9_-]{20,}/)?.[0]
+    if (anth) out.push({ kind: 'anthropic', value: anth, label: 'Anthropic API key' })
+    const pat  = text.match(/(?:github_pat_[a-zA-Z0-9_]{20,}|ghp_[a-zA-Z0-9]{30,}|glc_[a-zA-Z0-9_-]{20,}|glcron_[a-zA-Z0-9_-]{20,})/)?.[0]
+    if (pat) out.push({ kind: 'pat', value: pat, label: 'Code-host PAT' })
+    const gt   = text.match(/gt_live_[a-zA-Z0-9_-]{15,}/)?.[0]
+    if (gt) out.push({ kind: 'gatetest', value: gt, label: 'gatetest.ai key' })
+    return out
+  })()
+
+  const apply = () => {
+    for (const d of detected) {
+      if (d.kind === 'anthropic') setAnth(d.value)
+      else if (d.kind === 'pat')  setGh(d.value)
+      else if (d.kind === 'gatetest') setGt(d.value)
+    }
+    setText('')
+    alert(`Saved ${detected.length} key${detected.length === 1 ? '' : 's'} — backed up to keychain.`)
+  }
+
+  return (
+    <section className="hm-drawer-section" style={{ background: 'rgba(99,102,241,0.05)', borderRadius: 8, padding: 12 }}>
+      <h3 className="hm-drawer-section-title">
+        ⚡ Quick setup{' '}
+        <button
+          onClick={() => setShow((v) => !v)}
+          style={{
+            fontSize: 11, fontWeight: 400, marginLeft: 8,
+            background: 'transparent', border: '1px solid var(--border, #444)',
+            color: 'var(--text-muted)', padding: '2px 8px', borderRadius: 4, cursor: 'pointer',
+          }}
+        >
+          {showSection ? 'Hide' : 'Show'}
+        </button>
+      </h3>
+      {!showSection ? (
+        <p className="hm-drawer-help" style={{ marginBottom: 0 }}>
+          One paste sets everything up — Anthropic key, GitHub PAT, gatetest.ai
+          key. Click <strong>Show</strong> to use it.
+        </p>
+      ) : (
+        <>
+          <p className="hm-drawer-help">
+            Paste ANY text containing your keys (email, a list, secrets file).
+            HM auto-detects <code>sk-ant-…</code>, <code>github_pat_…</code> /
+            <code>ghp_…</code> / <code>glc_…</code>, and <code>gt_live_…</code>{' '}
+            then saves them. Backed up to a separate keychain so they survive
+            every future update.
+          </p>
+          <textarea
+            className="hm-textarea"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Paste anything containing your keys here…"
+            rows={4}
+            spellCheck={false}
+            autoComplete="off"
+          />
+          {detected.length > 0 && (
+            <div style={{ marginTop: 8, fontSize: 13 }}>
+              <strong>Detected:</strong>
+              <ul style={{ margin: '4px 0 0 0', paddingLeft: 20 }}>
+                {detected.map((d) => (
+                  <li key={d.kind} style={{ color: 'var(--ok, #22c55e)' }}>
+                    ✓ {d.label} (<code>{d.value.slice(0, 12)}…</code>)
+                  </li>
+                ))}
+              </ul>
+              <button
+                className="hm-btn-primary"
+                onClick={apply}
+                style={{ marginTop: 8 }}
+              >
+                Apply {detected.length} key{detected.length === 1 ? '' : 's'} →
+              </button>
+            </div>
+          )}
+          {text.trim() && detected.length === 0 && (
+            <p className="hm-drawer-help" style={{ color: 'var(--text-muted)', marginTop: 8 }}>
+              No recognized key formats in that paste. Look for{' '}
+              <code>sk-ant-…</code>, <code>github_pat_…</code>, or{' '}
+              <code>gt_live_…</code>.
+            </p>
+          )}
+        </>
+      )}
+    </section>
   )
 }
