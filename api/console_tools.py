@@ -299,6 +299,111 @@ TOOL_SCHEMAS: dict[str, dict] = {
             "required": ["repo", "branch"],
         },
     },
+    "open_pull_request": {
+        "name": "open_pull_request",
+        "description": (
+            "Open a pull request from a working branch back to the repo's default branch (or a "
+            "specified base). Use this AFTER you've committed your work to a working branch — "
+            "the PR is the merge proposal, not the merge itself. Returns the PR number + URL. "
+            "Pair with merge_pull_request to actually ship; merging is gate-protected."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo":  { "type": "string", "description": "Repository in 'owner/name' form." },
+                "head":  { "type": "string", "description": "Working branch with the changes." },
+                "base":  { "type": "string", "description": "Target branch to merge into. Defaults to the repo's default branch." },
+                "title": { "type": "string", "description": "PR title — present-tense summary of the change." },
+                "body":  { "type": "string", "description": "Optional PR description (markdown)." },
+            },
+            "required": ["repo", "head", "title"],
+        },
+    },
+    "merge_pull_request": {
+        "name": "merge_pull_request",
+        "description": (
+            "Merge a pull request into its base branch. REFUSES TO MERGE if the Holden Mercer "
+            "gate hasn't completed successfully on the head SHA — this is the regression "
+            "guarantee: nothing red lands on main. If the gate hasn't run yet, trigger it via "
+            "run_gate first; if it failed, fix the failure on the same branch and re-run. "
+            "Squash-merges by default (clean history)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo":         { "type": "string", "description": "Repository in 'owner/name' form." },
+                "pull_number":  { "type": "integer", "description": "PR number returned by open_pull_request." },
+                "merge_method": {
+                    "type": "string",
+                    "enum": ["squash", "merge", "rebase"],
+                    "description": "How to merge. Default: squash.",
+                },
+            },
+            "required": ["repo", "pull_number"],
+        },
+    },
+    "check_recent_activity": {
+        "name": "check_recent_activity",
+        "description": (
+            "Get a snapshot of what's just happened in this repo: last 10 commits to the "
+            "default branch, open pull requests (with their head branches), in-progress "
+            "workflow runs, and the active-work manifest. Run this BEFORE making any "
+            "changes so you don't branch from stale state and don't collide with another "
+            "in-flight branch. The Console auto-loads this on session start, but call it "
+            "again whenever the conversation has been running for a while."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo": { "type": "string", "description": "Repository in 'owner/name' form." },
+            },
+            "required": ["repo"],
+        },
+    },
+    "claim_work": {
+        "name": "claim_work",
+        "description": (
+            "Record that you're starting work on a branch by appending an entry to "
+            "`.holdenmercer/active-work.json`. The entry lists the branch, your intent in one "
+            "sentence, and the file paths you expect to touch. Other agent sessions that read "
+            "the manifest will see your claim and avoid colliding. Call this RIGHT AFTER "
+            "create_github_branch and BEFORE any commit on that branch."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo":   { "type": "string", "description": "Repository in 'owner/name' form." },
+                "branch": { "type": "string", "description": "The working branch you just created." },
+                "intent": { "type": "string", "description": "One-sentence description of the goal." },
+                "scope":  {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "List of file paths or directory globs you expect to touch.",
+                },
+                "agent":  {
+                    "type": "string",
+                    "description": "Identifier for who's doing the work, e.g. 'console' or 'task:<id>'.",
+                },
+            },
+            "required": ["repo", "branch", "intent"],
+        },
+    },
+    "release_work": {
+        "name": "release_work",
+        "description": (
+            "Remove this branch's entry from `.holdenmercer/active-work.json`. Call this "
+            "AFTER the branch has been merged via merge_pull_request, OR if you're abandoning "
+            "the branch. Keeps the manifest clean for future sessions."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo":   { "type": "string", "description": "Repository in 'owner/name' form." },
+                "branch": { "type": "string", "description": "The branch to release." },
+            },
+            "required": ["repo", "branch"],
+        },
+    },
 }
 
 
@@ -309,6 +414,10 @@ WRITE_TOOL_NAMES: set[str] = {
     "commit_changes",
     "delete_github_file",
     "create_github_branch",
+    "open_pull_request",
+    "merge_pull_request",
+    "claim_work",
+    "release_work",
     "setup_gate_workflow",   # writes a workflow file
     "run_gate",              # mutates the actions queue
 }
@@ -396,6 +505,39 @@ async def run_tool(
             repo=tool_input.get("repo", ""),
             branch=tool_input.get("branch", ""),
             from_ref=tool_input.get("from_ref"),
+            token=github_token,
+        )
+    if name == "open_pull_request":
+        return await _open_pull_request(
+            repo=tool_input.get("repo", ""),
+            head=tool_input.get("head", ""),
+            base=tool_input.get("base"),
+            title=tool_input.get("title", ""),
+            body=tool_input.get("body", ""),
+            token=github_token,
+        )
+    if name == "merge_pull_request":
+        return await _merge_pull_request(
+            repo=tool_input.get("repo", ""),
+            pull_number=int(tool_input.get("pull_number") or 0),
+            merge_method=tool_input.get("merge_method") or "squash",
+            token=github_token,
+        )
+    if name == "check_recent_activity":
+        return await _check_recent_activity(tool_input.get("repo", ""), github_token)
+    if name == "claim_work":
+        return await _claim_work(
+            repo=tool_input.get("repo", ""),
+            branch=tool_input.get("branch", ""),
+            intent=tool_input.get("intent", ""),
+            scope=list(tool_input.get("scope") or []),
+            agent=tool_input.get("agent") or "console",
+            token=github_token,
+        )
+    if name == "release_work":
+        return await _release_work(
+            repo=tool_input.get("repo", ""),
+            branch=tool_input.get("branch", ""),
             token=github_token,
         )
     if name == "read_github_file":
@@ -1061,6 +1203,345 @@ async def _search_my_sessions(query: str, limit: int, token: str, org: str) -> s
                 rows.append(fragment[:600])
         rows.append("")
     return "\n".join(rows).rstrip()
+
+
+# ── open_pull_request / merge_pull_request ──────────────────────────────────
+
+async def _open_pull_request(
+    repo: str,
+    head: str,
+    base: str | None,
+    title: str,
+    body: str,
+    token: str,
+) -> str:
+    if "/" not in repo:
+        raise ValueError("repo must be in 'owner/name' form.")
+    if not head:
+        raise ValueError("head branch is required.")
+    if not title:
+        raise ValueError("title is required.")
+    if not token:
+        raise ValueError("No GitHub token configured.")
+
+    headers = _gh_headers(token)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        target = base
+        if not target:
+            r = await client.get(f"{GITHUB_API}/repos/{repo}", headers=headers)
+            r.raise_for_status()
+            target = r.json().get("default_branch", "main")
+
+        resp = await client.post(
+            f"{GITHUB_API}/repos/{repo}/pulls",
+            headers=headers,
+            json={"head": head, "base": target, "title": title, "body": body or ""},
+        )
+        if resp.status_code == 422:
+            # Common: "No commits between base and head" or PR already exists
+            return f"[error: {resp.status_code} {resp.text[:300]}]"
+        if resp.status_code >= 400:
+            return f"[error: {resp.status_code} {resp.text[:300]}]"
+        data = resp.json()
+
+    return (
+        f"opened PR #{data.get('number')} in {repo} "
+        f"({head} → {target}) — {title}\n  {data.get('html_url')}"
+    )
+
+
+async def _merge_pull_request(
+    repo: str,
+    pull_number: int,
+    merge_method: str,
+    token: str,
+) -> str:
+    if "/" not in repo:
+        raise ValueError("repo must be in 'owner/name' form.")
+    if not pull_number:
+        raise ValueError("pull_number is required.")
+    if not token:
+        raise ValueError("No GitHub token configured.")
+    if merge_method not in ("squash", "merge", "rebase"):
+        merge_method = "squash"
+
+    headers = _gh_headers(token)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        # Fetch the PR to get head SHA + branches
+        pr = await client.get(f"{GITHUB_API}/repos/{repo}/pulls/{pull_number}", headers=headers)
+        if pr.status_code == 404:
+            return f"[PR #{pull_number} not found in {repo}]"
+        pr.raise_for_status()
+        pr_data    = pr.json()
+        head_sha   = pr_data.get("head", {}).get("sha", "")
+        head_ref   = pr_data.get("head", {}).get("ref", "")
+        base_ref   = pr_data.get("base", {}).get("ref", "")
+        if pr_data.get("merged"):
+            return f"[PR #{pull_number} is already merged]"
+        if pr_data.get("state") == "closed":
+            return f"[PR #{pull_number} is closed (not merged)]"
+
+        # Refuse to merge if the gate hasn't completed successfully on the head SHA.
+        # Look up the most recent gate workflow run for this head_sha.
+        runs = await client.get(
+            f"{GITHUB_API}/repos/{repo}/actions/workflows/holden-mercer-gate.yml/runs",
+            headers=headers,
+            params={"head_sha": head_sha, "per_page": 1},
+        )
+        if runs.status_code == 404:
+            return (
+                "[REFUSED: gate workflow not installed in this repo. "
+                "Install it via setup_gate_workflow, then run_gate on this branch, "
+                "then re-attempt merge_pull_request.]"
+            )
+        runs.raise_for_status()
+        items = runs.json().get("workflow_runs", [])
+        if not items:
+            return (
+                f"[REFUSED: no gate run found for head SHA {head_sha[:7]}. "
+                f"Trigger run_gate(repo={repo!r}, branch={head_ref!r}) first, "
+                f"wait for it to finish, then re-attempt merge_pull_request.]"
+            )
+        latest = items[0]
+        if latest.get("status") != "completed":
+            return (
+                f"[REFUSED: gate run {latest.get('id')} is still {latest.get('status')!r}. "
+                f"Wait via check_gate(repo, run_id={latest.get('id')}) until it completes.]"
+            )
+        if latest.get("conclusion") != "success":
+            return (
+                f"[REFUSED: gate run {latest.get('id')} concluded "
+                f"{latest.get('conclusion')!r} — main never receives a red commit. "
+                f"Read the failure via read_gate_logs(repo, run_id={latest.get('id')}), "
+                f"fix the failure on this branch, run_gate again, then re-attempt.]"
+            )
+
+        # All-clear — perform the merge
+        merge = await client.put(
+            f"{GITHUB_API}/repos/{repo}/pulls/{pull_number}/merge",
+            headers=headers,
+            json={"merge_method": merge_method},
+        )
+        if merge.status_code == 405:
+            return f"[error: PR not mergeable — possible conflicts with {base_ref}]"
+        if merge.status_code == 409:
+            return f"[error: head SHA changed mid-merge; re-fetch PR and retry]"
+        if merge.status_code >= 400:
+            return f"[error: {merge.status_code} {merge.text[:300]}]"
+        m = merge.json()
+
+    return (
+        f"merged PR #{pull_number} ({head_ref} → {base_ref}) via {merge_method} — "
+        f"{m.get('sha', '')[:7]}. Gate was ✅ on {head_sha[:7]}."
+    )
+
+
+# ── check_recent_activity (pre-flight briefing for agents) ──────────────────
+
+async def _check_recent_activity(repo: str, token: str) -> str:
+    if "/" not in repo:
+        raise ValueError("repo must be in 'owner/name' form.")
+    if not token:
+        raise ValueError("No GitHub token configured.")
+
+    headers = _gh_headers(token)
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        # Resolve default branch
+        repo_info = await client.get(f"{GITHUB_API}/repos/{repo}", headers=headers)
+        repo_info.raise_for_status()
+        default_branch = repo_info.json().get("default_branch", "main")
+
+        commits, prs, runs = await asyncio.gather(
+            client.get(
+                f"{GITHUB_API}/repos/{repo}/commits",
+                headers=headers,
+                params={"sha": default_branch, "per_page": 10},
+            ),
+            client.get(
+                f"{GITHUB_API}/repos/{repo}/pulls",
+                headers=headers,
+                params={"state": "open", "per_page": 10, "sort": "updated", "direction": "desc"},
+            ),
+            client.get(
+                f"{GITHUB_API}/repos/{repo}/actions/runs",
+                headers=headers,
+                params={"status": "in_progress", "per_page": 10},
+            ),
+        )
+
+    out: list[str] = []
+    out.append(f"Pre-flight briefing for {repo} (default branch: {default_branch})\n")
+
+    if commits.status_code < 400:
+        items = commits.json() or []
+        out.append(f"## Last {len(items)} commits on {default_branch}")
+        for c in items:
+            sha    = (c.get("sha") or "")[:7]
+            msg    = (c.get("commit", {}).get("message") or "").split("\n", 1)[0]
+            author = c.get("commit", {}).get("author", {}).get("name") or (c.get("author") or {}).get("login") or "?"
+            date   = c.get("commit", {}).get("author", {}).get("date") or ""
+            out.append(f"  {sha}  {date}  {author}: {msg}")
+        out.append("")
+
+    if prs.status_code < 400:
+        items = prs.json() or []
+        out.append(f"## Open PRs ({len(items)})")
+        if not items:
+            out.append("  (none)")
+        for p in items:
+            out.append(
+                f"  #{p.get('number')}  {p.get('head', {}).get('ref')} → {p.get('base', {}).get('ref')}  "
+                f"by {(p.get('user') or {}).get('login', '?')}: {p.get('title')}"
+            )
+        out.append("")
+
+    if runs.status_code < 400:
+        items = runs.json().get("workflow_runs", []) or []
+        out.append(f"## In-progress workflow runs ({len(items)})")
+        if not items:
+            out.append("  (none)")
+        for r in items:
+            out.append(
+                f"  run {r.get('id')}  {r.get('name')}  on {r.get('head_branch')}  "
+                f"({r.get('status')})  → {r.get('html_url')}"
+            )
+        out.append("")
+
+    # Active-work manifest
+    manifest = await _read_active_work(repo, default_branch, token)
+    out.append(f"## Active-work manifest ({len(manifest.get('active', []))} entries)")
+    if not manifest.get("active"):
+        out.append("  (no in-flight branches claimed)")
+    else:
+        for c in manifest["active"]:
+            paths = ", ".join((c.get("scope") or [])[:6]) or "(no scope listed)"
+            out.append(
+                f"  {c.get('branch')}  {c.get('startedAt')}  agent={c.get('agent', '?')}\n"
+                f"    intent: {c.get('intent', '')}\n"
+                f"    scope:  {paths}"
+            )
+    out.append("")
+    out.append(
+        "Read this BEFORE editing. If your planned files overlap with an open PR's "
+        "branch or another agent's claimed scope, branch from THAT branch instead "
+        "of the default — or coordinate by handing off to that PR. Never branch "
+        "from a stale state."
+    )
+    return "\n".join(out)
+
+
+# ── claim_work / release_work (active-work manifest) ────────────────────────
+
+ACTIVE_WORK_PATH = ".holdenmercer/active-work.json"
+
+
+async def _read_active_work(repo: str, branch: str | None, token: str) -> dict:
+    headers = {**_gh_headers(token), "Accept": "application/vnd.github.raw"}
+    params = {"ref": branch} if branch else None
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.get(
+            f"{GITHUB_API}/repos/{repo}/contents/{ACTIVE_WORK_PATH}",
+            headers=headers, params=params,
+        )
+    if r.status_code != 200:
+        return {"version": 1, "active": []}
+    try:
+        data = r.json() if r.headers.get("content-type", "").startswith("application/json") \
+               else __import__("json").loads(r.text)
+    except Exception:
+        return {"version": 1, "active": []}
+    if not isinstance(data, dict):
+        return {"version": 1, "active": []}
+    if not isinstance(data.get("active"), list):
+        data["active"] = []
+    data.setdefault("version", 1)
+    return data
+
+
+async def _claim_work(
+    repo: str, branch: str, intent: str, scope: list[str], agent: str, token: str,
+) -> str:
+    if "/" not in repo:
+        raise ValueError("repo must be in 'owner/name' form.")
+    if not branch:
+        raise ValueError("branch is required.")
+    if not token:
+        raise ValueError("No GitHub token configured.")
+
+    import datetime as _dt
+    import json as _json
+
+    # We always read + write against the repo's default branch so the
+    # manifest stays canonical and isn't fork-bombed across feature branches.
+    headers = _gh_headers(token)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        repo_info = await client.get(f"{GITHUB_API}/repos/{repo}", headers=headers)
+        repo_info.raise_for_status()
+        default_branch = repo_info.json().get("default_branch", "main")
+
+    manifest = await _read_active_work(repo, default_branch, token)
+    # De-dupe: replace any existing entry for this branch
+    manifest["active"] = [c for c in manifest["active"] if c.get("branch") != branch]
+    manifest["active"].insert(0, {
+        "branch":    branch,
+        "agent":     agent or "console",
+        "scope":     scope,
+        "startedAt": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+        "intent":    intent[:240],
+    })
+    body = _json.dumps(manifest, indent=2) + "\n"
+    return await _write_meta_file(
+        repo=repo,
+        path=ACTIVE_WORK_PATH,
+        content=body,
+        commit_message=f"chore(active-work): claim {branch}",
+        branch=default_branch,
+        token=token,
+    )
+
+
+async def _release_work(repo: str, branch: str, token: str) -> str:
+    if "/" not in repo:
+        raise ValueError("repo must be in 'owner/name' form.")
+    if not branch:
+        raise ValueError("branch is required.")
+    if not token:
+        raise ValueError("No GitHub token configured.")
+
+    import json as _json
+
+    headers = _gh_headers(token)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        repo_info = await client.get(f"{GITHUB_API}/repos/{repo}", headers=headers)
+        repo_info.raise_for_status()
+        default_branch = repo_info.json().get("default_branch", "main")
+
+    manifest = await _read_active_work(repo, default_branch, token)
+    before = len(manifest["active"])
+    manifest["active"] = [c for c in manifest["active"] if c.get("branch") != branch]
+    if len(manifest["active"]) == before:
+        return f"[no claim found for branch {branch} — nothing to release]"
+    body = _json.dumps(manifest, indent=2) + "\n"
+    return await _write_meta_file(
+        repo=repo,
+        path=ACTIVE_WORK_PATH,
+        content=body,
+        commit_message=f"chore(active-work): release {branch}",
+        branch=default_branch,
+        token=token,
+    )
+
+
+async def _write_meta_file(
+    repo: str, path: str, content: str, commit_message: str,
+    branch: str | None, token: str,
+) -> str:
+    """Internal helper — same as _write_github_file but without the autonomy
+    plumbing (this is for housekeeping commits like active-work updates)."""
+    return await _write_github_file(
+        repo=repo, path=path, content=content,
+        commit_message=commit_message, branch=branch, token=token,
+    )
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────

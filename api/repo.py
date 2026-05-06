@@ -33,6 +33,7 @@ from api.gate_tools import (
     _setup_gate_workflow,
 )
 from api.gate_workflow import WORKFLOW_FILENAME
+from core.providers import get_code_host
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/repo", tags=["repo"])
@@ -78,8 +79,9 @@ def _resolve_token(req_token: str) -> str:
 @router.post("/file/read", dependencies=[Depends(require_api_key)])
 async def read_file(req: ReadFileRequest):
     token = _resolve_token(req.github_token)
+    host  = get_code_host()
     try:
-        content = await _read_github_file(req.repo, req.path, req.ref, token)
+        content = await host.get_file(req.repo, req.path, req.ref, token)
         return {"content": content}
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
@@ -88,8 +90,9 @@ async def read_file(req: ReadFileRequest):
 @router.post("/file/write", dependencies=[Depends(require_api_key)])
 async def write_file(req: WriteFileRequest):
     token = _resolve_token(req.github_token)
+    host  = get_code_host()
     try:
-        result = await _write_github_file(
+        result = await host.put_file(
             repo=req.repo,
             path=req.path,
             content=req.content,
@@ -105,8 +108,9 @@ async def write_file(req: WriteFileRequest):
 @router.post("/dir", dependencies=[Depends(require_api_key)])
 async def list_dir(req: ListDirRequest):
     token = _resolve_token(req.github_token)
+    host  = get_code_host()
     try:
-        items = await _fetch_github_dir(req.repo, req.path, req.ref, token)
+        items = await host.list_dir(req.repo, req.path, req.ref, token)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     out = [
@@ -127,9 +131,10 @@ async def list_dir(req: ListDirRequest):
 async def list_repos(req: ListReposRequest):
     token = _resolve_token(req.github_token)
     from core.config import get_settings
-    org = req.org or get_settings().gluecron_github_org
+    org   = req.org or get_settings().gluecron_github_org
+    host  = get_code_host()
     try:
-        repos = await _fetch_github_repos(token, org)
+        repos = await host.list_repos(org, token)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 

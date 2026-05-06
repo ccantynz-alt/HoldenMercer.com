@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useProjects } from '../stores/projects'
 import { useSettings, type DockablePane } from '../stores/settings'
 import { Brief } from './Brief'
+import { Planner } from './Planner'
 import { Console } from './Console'
 import { Memory } from './Memory'
 import { Gate } from './Gate'
@@ -23,11 +24,13 @@ import { Tasks } from './Tasks'
 import { TaskSwarm } from './TaskSwarm'
 import { LinkRepoModal } from './LinkRepoModal'
 import { ResizeHandle } from './ResizeHandle'
+import { dispatchTask } from '../lib/jobs'
 
-type TabId = 'brief' | 'console' | 'preview' | 'gate' | 'tasks' | 'memory' | 'swarm'
+type TabId = 'brief' | 'planner' | 'console' | 'preview' | 'gate' | 'tasks' | 'memory' | 'swarm'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'brief',   label: 'Brief'   },
+  { id: 'planner', label: 'Planner' },
   { id: 'console', label: 'Console' },
   { id: 'preview', label: 'Preview' },
   { id: 'gate',    label: 'Gate'    },
@@ -108,6 +111,16 @@ export function ProjectShell() {
             >
               🌐 Submit to showcase ↗
             </a>
+          )}
+          {project.repo && (
+            <button
+              className="hm-repo-link"
+              style={{ marginLeft: 8 }}
+              onClick={() => onboardProject(project.repo!, project.name, project.branch ?? undefined)}
+              title="Scan this existing repo (from Cursor, Bolt, Lovable, hand-coded — anything) and auto-write the brief, invariants, and gate workflow. Runs as a background task."
+            >
+              🪄 Onboard with Holden Mercer
+            </button>
           )}
         </div>
         <span className={`hm-status-pill hm-status-${project.status}`}>
@@ -191,12 +204,103 @@ export function ProjectShell() {
 
 function renderPane(tab: TabId, projectId: string, switchToConsole: () => void) {
   return tab === 'brief'    ? <Brief    projectId={projectId} />
+       : tab === 'planner'  ? <Planner  projectId={projectId} onSwitchToConsole={switchToConsole} />
        : tab === 'console'  ? <Console  projectId={projectId} />
        : tab === 'preview'  ? <Preview  projectId={projectId} />
        : tab === 'gate'     ? <Gate     projectId={projectId} onSwitchToConsole={switchToConsole} />
        : tab === 'tasks'    ? <Tasks    projectId={projectId} />
        : tab === 'memory'   ? <Memory   projectId={projectId} />
        : <TaskSwarm />
+}
+
+async function onboardProject(repo: string, name: string, branch?: string) {
+  const ok = confirm(
+    `Onboard "${repo}" into Holden Mercer?\n\n` +
+    `A background task will scan the repo, auto-write .holdenmercer/brief.md and ` +
+    `invariants.md, install the gate workflow, and run the gate once to confirm. ` +
+    `It opens a PR you can review before anything lands on main.\n\n` +
+    `Watch progress in the Tasks tab.`
+  )
+  if (!ok) return
+  try {
+    const dispatched = await dispatchTask({
+      repo,
+      prompt: ONBOARDING_PROMPT(name, repo),
+      brief:  `Onboarding pass for ${name} — auto-written by Holden Mercer.`,
+      branch,
+      max_iters: 40,
+    })
+    alert(
+      `Onboarding task dispatched (${dispatched.task_id}).\n\n` +
+      `Check the Tasks tab for progress. The agent will work on a branch ` +
+      `(claude/onboard-…) and open a PR once it's done.`
+    )
+  } catch (err) {
+    alert(`Could not dispatch onboarding: ${(err as Error).message}`)
+  }
+}
+
+function ONBOARDING_PROMPT(name: string, repo: string): string {
+  return `Onboard the project "${name}" (repo: ${repo}) into Holden Mercer.
+
+This repo may have been started elsewhere — Cursor, Claude Code, Bolt, Lovable, v0,
+or hand-coded. Your job: read what exists, then set up the .holdenmercer/ scaffolding
+so future Claude sessions have proper context and won't go rogue.
+
+DOCTRINE: work on a branch (claude/onboard-<short-date>), claim_work, run_gate,
+open_pull_request, merge_pull_request (gate-protected). The PR is the user's
+review surface — they'll see your suggested brief + invariants before anything
+lands on main.
+
+Steps:
+
+1. PRE-FLIGHT — call check_recent_activity to see what's already going on.
+
+2. EXPLORE the repo:
+   - read_github_file README.md (if exists)
+   - read_github_file package.json / pyproject.toml / requirements.txt /
+     Cargo.toml / go.mod (whichever exists)
+   - list_github_dir on the root + on src/ or app/ or lib/ to find the most
+     populated source directory
+   - read_github_file the top 6-10 source files in that directory
+   - search_repo_code for "TODO" and "FIXME" to spot unfinished work
+
+3. WRITE the BRIEF — commit_changes with .holdenmercer/brief.md:
+       # ${name}
+       ## What this is
+       (1-3 sentence summary inferred from the codebase)
+       ## Stack
+       (bullet list: language, framework, key deps, build tool, test runner)
+       ## Conventions
+       (bullet list: file layout, naming, state mgmt, styling — only what's
+        actually visible in the code, no invented standards)
+       ## Out of scope
+       (bullet list: things the project intentionally does NOT do, if obvious)
+
+4. WRITE the INVARIANTS — same commit, .holdenmercer/invariants.md:
+   3 to 7 things that must NOT break, tuned to THIS project. Examples:
+       - The app builds with \`npm run build\`
+       - All existing tests pass
+       - The /login route renders without errors
+       - The README quick-start commands still work
+   Don't invent invariants you can't verify. Be specific to what you saw.
+
+5. INSTALL the gate workflow — call setup_gate_workflow.
+
+6. Run the gate once on your branch to confirm it works on the current code.
+   If it fails, that's a useful signal — note it in your brief but don't try
+   to fix the existing project's problems as part of onboarding.
+
+7. open_pull_request titled "chore: onboard with Holden Mercer", body explains
+   what you found and what scaffolding you wrote. Then merge_pull_request
+   (it'll refuse if the gate failed, which is correct — let the user resolve
+   the gate failure on a follow-up PR).
+
+8. report_result with a one-paragraph summary of: what stack you found,
+   what brief you wrote, what invariants, gate status (pass/fail/not-run),
+   and any TODOs or unfinished work you spotted that the user should know about.
+
+Be thorough but quick. This is one-shot setup — get it right then exit.`
 }
 
 /** Build a deep-link to the curated registry edit page on GitHub with the
