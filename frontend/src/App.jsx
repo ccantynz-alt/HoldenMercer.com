@@ -132,7 +132,7 @@ export default function App() {
 
   return (
     <ErrorBoundary
-      fallback={(errorText, reset, hardReset) => (
+      fallback={(errorText, reset, hardReset, nuclearReset) => (
         <div className="hm-crash">
           <h1>The dashboard hit an error.</h1>
           <p>This is real — not a placeholder. The fix is built in.</p>
@@ -142,9 +142,17 @@ export default function App() {
             <button
               className="hm-btn-ghost"
               onClick={hardReset}
-              title="Clears all Holden Mercer local state and reloads. Fixes loops caused by bad persisted state. Your repos on GitHub are not affected."
+              title="Clears most local state but PRESERVES your Anthropic key, code-host PAT, and project list. Try this first."
             >
-              Hard reset (clear local state)
+              Hard reset (keeps API keys)
+            </button>
+            <button
+              className="hm-btn-ghost"
+              onClick={nuclearReset}
+              title="Wipes EVERYTHING including API keys. Only use if Hard reset doesn't fix it."
+              style={{ opacity: 0.7 }}
+            >
+              Nuclear reset (wipes API keys too)
             </button>
             {/* The FixThisButton is also rendered here, prefilled with the
                 error context. Clicking it opens the dialog so Claude can be
