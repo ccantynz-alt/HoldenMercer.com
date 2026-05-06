@@ -21,7 +21,7 @@ import {
   recentCommits, openPullRequests, inProgressRuns,
   type RecentCommit, type OpenPR, type InProgressRun,
 } from '../lib/repo'
-import { checkRepoSecret, setupTaskWorkflow } from '../lib/jobs'
+import { checkRepoSecret, setupTaskWorkflow, dispatchTask } from '../lib/jobs'
 import { SectionErrorBoundary } from './SectionErrorBoundary'
 
 interface Props {
@@ -31,12 +31,15 @@ interface Props {
 }
 
 interface ActivityEvent {
-  kind:      'commit' | 'pr' | 'run'
-  ts:        number
-  project:   Project
-  title:     string
-  meta:      string
-  url:       string
+  kind:           'commit' | 'pr' | 'run'
+  ts:             number
+  project:        Project
+  title:          string
+  meta:           string
+  url:            string
+  isHmAuthored?:  boolean
+  sha?:           string
+  repo?:          string
 }
 
 export function AdminHome({ onNewProject, onOpenProject, onOpenSettings }: Props) {
@@ -120,6 +123,16 @@ export function AdminHome({ onNewProject, onOpenProject, onOpenSettings }: Props
           kind: 'commit', ts: parseDate(c.date), project: p,
           title: c.message, meta: `${c.sha} · ${c.author ?? '?'}`,
           url:   c.url,
+          // Mark HM-bot authored commits so we can show an Undo button.
+          // GitHub Actions bot author covers task workflow commits;
+          // gatetest auto-fix branches start with claude/ or gatetest/.
+          isHmAuthored: !!(c.author && (
+            c.author.includes('github-actions') ||
+            c.author.includes('claude') ||
+            c.author.includes('Holden Mercer')
+          )),
+          sha: c.sha,
+          repo: p.repo!,
         })
       }
       for (const pr of data.prs) {
@@ -246,6 +259,40 @@ export function AdminHome({ onNewProject, onOpenProject, onOpenSettings }: Props
                         {ev.project.name} · {ev.meta} · {formatRelative(ev.ts)}
                       </span>
                     </span>
+                    {ev.isHmAuthored && ev.sha && ev.repo && (
+                      <button
+                        className="hm-home-event-link"
+                        title={`Open a revert PR for commit ${ev.sha}. Branch + PR + gate-protected merge — won't actually undo until you review and click merge.`}
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          if (!confirm(
+                            `Open a revert PR for this commit?\n\n` +
+                            `"${ev.title}"\n` +
+                            `${ev.sha} on ${ev.repo}\n\n` +
+                            `Background agent will draft the revert + open a PR. ` +
+                            `It does NOT auto-merge — you review the revert PR ` +
+                            `before anything lands.`
+                          )) return
+                          try {
+                            const dispatched = await dispatchTask({
+                              repo:   ev.repo!,
+                              prompt: revertCommitPrompt(ev.repo!, ev.sha!, ev.title),
+                              brief:  `Revert commit ${ev.sha} on ${ev.repo} — dispatched from AdminHome.`,
+                              max_iters: 20,
+                            })
+                            alert(
+                              `Revert task dispatched (${dispatched.task_id}).\n\n` +
+                              `Watch Tasks tab → 📜 Logs to see the agent draft the revert PR.`
+                            )
+                          } catch (err) {
+                            alert(`Revert dispatch failed: ${(err as Error).message}`)
+                          }
+                        }}
+                        style={{ marginRight: 6 }}
+                      >
+                        ↩ Undo
+                      </button>
+                    )}
                     {ev.url && (
                       <a
                         href={ev.url}
@@ -473,4 +520,45 @@ function formatRelative(ts: number): string {
   const d = Math.floor(h / 24)
   if (d < 30)  return `${d}d ago`
   return new Date(ts).toLocaleDateString()
+}
+
+/** Prompt for a one-click rollback dispatch. Agent uses git-revert
+ *  semantics — restores files changed in the commit to their parent state,
+ *  opens a PR. Does NOT merge automatically. */
+function revertCommitPrompt(repo: string, sha: string, title: string): string {
+  return `Revert task — undo a specific commit on ${repo}.
+
+Commit to revert: ${sha}
+Original message: ${title}
+
+DOCTRINE (binding):
+  • Branch + PR + gate-protected merge — never commit directly to main
+  • Read flywheel context FIRST (check_recent_activity)
+  • claim_work BEFORE editing
+  • Use git-revert semantics: for each file changed in commit ${sha},
+    restore it to the state at the commit's PARENT. Read the parent's
+    version via read_github_file with ref=<parent sha>, then write that
+    content back via commit_changes on a new branch.
+  • Branch name: claude/revert-${sha.slice(0, 7)}
+  • PR title: "Revert: ${title.slice(0, 80)}"
+  • PR body: explain WHY you're reverting (from the user's request),
+    list the affected files, link to the original commit.
+  • Run gatetest_check after the revert to confirm the rollback didn't
+    introduce new issues. If it did, surface them in the PR body — DO
+    NOT auto-merge.
+  • DO NOT call merge_pull_request — the user reviews + merges manually.
+    The whole point of one-click rollback is the user retains control
+    over what actually goes back to main.
+
+Steps:
+  1. read_github_file the commit metadata (use the GitHub commits API
+     via web_fetch if needed) to identify changed files + parent sha.
+  2. Create branch claude/revert-${sha.slice(0, 7)} from main.
+  3. claim_work for that branch.
+  4. For each file changed, read the parent version + commit_changes
+     to restore it.
+  5. gatetest_check on the branch.
+  6. open_pull_request.
+  7. release_work.
+  8. report_result with PR URL + summary of what was reverted.`
 }
