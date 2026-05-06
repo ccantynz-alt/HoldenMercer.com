@@ -4447,3 +4447,305 @@ body {
   flex-wrap: wrap;
   align-items: center;
 }
+
+/* ── Modern AI surfaces ─────────────────────────────────────────────────────
+   Light-mode "AI" treatment in the existing palette: champagne shimmer,
+   soft auroras, gradient text, frosted layers. Used by Gate's gatetest.ai
+   panel; reusable on any tab that wants to feel "alive".
+   ───────────────────────────────────────────────────────────────────────── */
+
+@keyframes hm-shimmer {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+@keyframes hm-aurora-drift {
+  0%   { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50%  { transform: translate3d(2%, -1%, 0) rotate(180deg); }
+  100% { transform: translate3d(0, 0, 0) rotate(360deg); }
+}
+@keyframes hm-soft-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-b-glow); }
+  50%      { box-shadow: 0 0 0 8px transparent; }
+}
+@keyframes hm-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.hm-ai-card {
+  position: relative;
+  border-radius: var(--radius-lg);
+  padding: 20px 22px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.7) 0%, var(--bg-surface) 100%);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.6) inset,
+    0 1px 2px rgba(10,10,11,0.04),
+    0 8px 28px -16px rgba(168,137,63,0.18);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* Gradient shimmer border — subtle when idle, animated when running. */
+.hm-ai-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    115deg,
+    transparent 0%,
+    var(--accent-b-glow) 30%,
+    var(--accent-b) 50%,
+    var(--accent-b-glow) 70%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  opacity: 0.35;
+  pointer-events: none;
+  transition: opacity 240ms ease;
+}
+.hm-ai-card.is-running::before {
+  opacity: 1;
+  animation: hm-shimmer 2.4s linear infinite;
+}
+
+/* Soft conic aurora behind the card — drifts slowly. */
+.hm-ai-card::after {
+  content: '';
+  position: absolute;
+  inset: -40%;
+  background:
+    radial-gradient(circle at 30% 20%, var(--accent-b-soft) 0%, transparent 35%),
+    radial-gradient(circle at 80% 70%, rgba(10,10,11,0.04) 0%, transparent 40%);
+  animation: hm-aurora-drift 22s linear infinite;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.hm-ai-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  background: linear-gradient(
+    92deg,
+    var(--text-primary) 0%,
+    var(--accent-b-deep) 55%,
+    var(--text-primary) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: hm-shimmer 8s linear infinite;
+}
+
+.hm-ai-subtitle {
+  margin: 4px 0 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.hm-ai-subtitle code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  background: var(--bg-elevated);
+  border-radius: 3px;
+  color: var(--text-secondary);
+}
+
+.hm-ai-status-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-b);
+  margin-right: 6px;
+  vertical-align: middle;
+  animation: hm-soft-pulse 2.6s ease-in-out infinite;
+}
+
+/* Primary button with subtle aurora behind it — fits the existing black pill,
+   just adds a soft champagne glow on hover/focus. */
+.hm-btn-primary.hm-btn-glow {
+  position: relative;
+  isolation: isolate;
+}
+.hm-btn-primary.hm-btn-glow::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: radial-gradient(
+    closest-side,
+    var(--accent-b-glow),
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity 200ms ease;
+  z-index: -1;
+}
+.hm-btn-primary.hm-btn-glow:hover:not(:disabled)::before { opacity: 1; }
+.hm-btn-primary.hm-btn-glow:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px var(--accent-b-glow);
+}
+
+/* Soft select that sits next to the primary action. */
+.hm-ai-select {
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-bright);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.hm-ai-select:hover  { border-color: var(--accent-b); }
+.hm-ai-select:focus  {
+  outline: none;
+  border-color: var(--accent-b);
+  box-shadow: 0 0 0 3px var(--accent-b-soft);
+}
+
+/* Softer error state — pulse-glow border instead of solid red rectangle. */
+.hm-ai-error {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--error-soft);
+  border: 1px solid color-mix(in srgb, var(--error) 35%, transparent);
+  color: var(--error);
+  font-size: 13px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  animation: hm-fade-in 220ms ease;
+}
+.hm-ai-error::before {
+  content: '✕';
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--error);
+  color: #fff;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+/* Stat chip row — used for the "X issues / Y passed / Z failed" summary. */
+.hm-ai-stats {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  font-size: 13px;
+  animation: hm-fade-in 260ms ease;
+}
+.hm-ai-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.hm-ai-stat.is-ok   { color: #0f7e5e; border-color: color-mix(in srgb, #10a37f 35%, var(--border)); }
+.hm-ai-stat.is-fail { color: var(--error); border-color: color-mix(in srgb, var(--error) 35%, var(--border)); }
+.hm-ai-stat-meta    { margin-left: auto; color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; }
+
+/* "Running" inline indicator — orb + label, replaces "Scanning…" plain text. */
+.hm-ai-running {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--accent-b-deep);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+.hm-ai-running-dots::after {
+  content: '';
+  display: inline-block;
+  width: 1ch;
+  text-align: left;
+  animation: hm-running-dots 1.4s steps(4, end) infinite;
+}
+@keyframes hm-running-dots {
+  0%   { content: ''; }
+  25%  { content: '.'; }
+  50%  { content: '..'; }
+  75%  { content: '...'; }
+  100% { content: ''; }
+}
+
+/* Auto-fix dispatched banner — soft champagne version of the green block. */
+.hm-ai-banner {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, var(--accent-b-soft), transparent 70%);
+  border: 1px solid color-mix(in srgb, var(--accent-b) 35%, transparent);
+  color: var(--accent-b-deep);
+  font-size: 13px;
+  animation: hm-fade-in 260ms ease;
+}
+.hm-ai-banner code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: rgba(255,255,255,0.6);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+/* Failed-module card — softer than red block, still clearly bad. */
+.hm-ai-fail {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--error-soft), transparent 80%);
+  border: 1px solid color-mix(in srgb, var(--error) 25%, var(--border));
+  transition: border-color 200ms ease;
+}
+.hm-ai-fail:hover  { border-color: color-mix(in srgb, var(--error) 45%, var(--border)); }
+.hm-ai-fail summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: var(--error);
+}
+.hm-ai-fail summary::-webkit-details-marker { display: none; }
+.hm-ai-fail-name { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Reduced motion — kill all the loops. */
+@media (prefers-reduced-motion: reduce) {
+  .hm-ai-card::before,
+  .hm-ai-card::after,
+  .hm-ai-title,
+  .hm-ai-status-dot,
+  .hm-ai-running-dots::after { animation: none !important; }
+}
