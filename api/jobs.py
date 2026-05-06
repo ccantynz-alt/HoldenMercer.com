@@ -287,6 +287,10 @@ async def list_tasks(req: ListRequest):
             "html_url":   r.get("html_url"),
             "actor":      (r.get("triggering_actor") or {}).get("login"),
             "name":       r.get("display_title") or r.get("name"),
+            # `event` exposes the trigger source so the UI can distinguish
+            # workflow_dispatch (button), schedule (cron), repository_dispatch
+            # (webhook), push, etc. Powers the ApiMonitor's trigger pill.
+            "event":      r.get("event"),
         }
         for r in runs
     ]

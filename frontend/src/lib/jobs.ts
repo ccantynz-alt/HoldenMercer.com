@@ -21,6 +21,10 @@ export interface TaskRun {
   html_url:   string
   actor:      string | null
   name:       string
+  /** GitHub Actions trigger event: workflow_dispatch / schedule /
+   *  repository_dispatch / push / pull_request / etc. Used by ApiMonitor
+   *  to label what fired each run. */
+  event?:     string
 }
 
 function token(): string {
