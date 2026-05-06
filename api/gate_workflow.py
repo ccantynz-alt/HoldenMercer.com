@@ -49,7 +49,13 @@ jobs:
         uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
         with:
           node-version: '20'
-          cache: 'npm'
+          # Cache only when a lock file exists. setup-node @v4 errors if cache:'npm'
+          # is set but no lock file is at the path. The repo's package.json may live
+          # at root OR at frontend/ — try both.
+          cache: ${{ hashFiles('package-lock.json', 'frontend/package-lock.json') != '' && 'npm' || '' }}
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
 
       - name: Set up Python
         if: ${{ hashFiles('requirements.txt') != '' || hashFiles('pyproject.toml') != '' || hashFiles('**/requirements.txt') != '' }}

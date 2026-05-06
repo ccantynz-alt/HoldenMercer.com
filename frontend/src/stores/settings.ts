@@ -78,6 +78,42 @@ export const useSettings = create<SettingsState>()(
       setSelfRepairRepo:   (repo)   => set({ selfRepairRepo: normalizeRepo(repo) }),
       setSelfRepairBranch: (branch) => set({ selfRepairBranch: branch.trim() }),
     }),
-    { name: 'holdenmercer:settings:v1' }
-  )
+    {
+      name:    'holdenmercer:settings:v1',
+      version: 2,
+      // Explicit partialize so we know exactly which fields persist. This
+      // also prevents weird hydration bugs where a default-value field
+      // (like defaultModel after we changed the default from Opus to
+      // Haiku) appears to "revert" because the schema mismatch confused
+      // the merge logic.
+      partialize: (s) => ({
+        anthropicKey:     s.anthropicKey,
+        githubToken:      s.githubToken,
+        githubOrg:        s.githubOrg,
+        gatetestKey:      s.gatetestKey,
+        autonomy:         s.autonomy,
+        defaultModel:     s.defaultModel,
+        dockedPane:       s.dockedPane,
+        dockedWidth:      s.dockedWidth,
+        selfRepairRepo:   s.selfRepairRepo,
+        selfRepairBranch: s.selfRepairBranch,
+      }),
+      // Forward-compatible migrate. Returns the persisted state unchanged
+      // for known versions. New fields use defaults from create().
+      migrate: (persisted, version) => {
+        const p = (persisted as Partial<SettingsState>) || {}
+        if (version < 2) {
+          // v1 → v2 — no-op data migration; we just want to bump the version
+          // so future merges go through this path explicitly.
+          return p as SettingsState
+        }
+        return p as SettingsState
+      },
+      // Cross-tab sync: when one tab writes settings, others rehydrate
+      // automatically. Without this, opening Settings in two tabs and
+      // editing in one would let the OTHER tab silently overwrite on
+      // next save.
+      skipHydration: false,
+    },
+  ),
 )

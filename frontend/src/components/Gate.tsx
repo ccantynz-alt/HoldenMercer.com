@@ -168,13 +168,34 @@ export function Gate({ projectId, onSwitchToConsole }: Props) {
   return (
     <div className="hm-gate">
       <GatetestPanel repo={repo} />
+      <details
+        style={{
+          marginTop: 16,
+          padding: 12,
+          border: '1px solid var(--border, #2a2a2a)',
+          borderRadius: 8,
+          background: 'var(--bg-elev, rgba(255,255,255,0.02))',
+        }}
+      >
+        <summary
+          style={{
+            cursor: 'pointer',
+            fontSize: 14,
+            color: 'var(--text-muted, #888)',
+            userSelect: 'none',
+          }}
+        >
+          Advanced — GitHub Actions gate (legacy fallback)
+        </summary>
+        <div style={{ marginTop: 12 }}>
       <header className="hm-gate-header">
         <div>
           <h2 className="hm-gate-title">Programmatic gate (GitHub Actions)</h2>
           <p className="hm-gate-help">
-            Lint + typecheck + tests run on every push to working branches and
-            on demand. Failures block the commit; Claude reads the log and
-            self-repairs.
+            Lint + typecheck + tests via GitHub Actions. Lighter-weight than
+            gatetest.ai (above) but still a useful belt-and-suspenders for
+            commits Claude makes on working branches. The primary signal
+            should be gatetest.ai.
           </p>
         </div>
         <div className="hm-gate-actions">
@@ -265,6 +286,8 @@ export function Gate({ projectId, onSwitchToConsole }: Props) {
           )
         })}
       </ul>
+        </div>
+      </details>
     </div>
   )
 }
