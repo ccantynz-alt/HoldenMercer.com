@@ -11,10 +11,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useProjects } from '../stores/projects'
 import { useChat } from '../stores/chat'
+import { useSettings } from '../stores/settings'
 import {
   gateLogs, listGateRuns, runGate, setupGate,
   type GateRun,
 } from '../lib/gate'
+import { scanRepo, type GatetestScanResult } from '../lib/gatetest'
 
 interface Props {
   projectId: string
@@ -165,9 +167,10 @@ export function Gate({ projectId, onSwitchToConsole }: Props) {
 
   return (
     <div className="hm-gate">
+      <GatetestPanel repo={repo} />
       <header className="hm-gate-header">
         <div>
-          <h2 className="hm-gate-title">Programmatic gate</h2>
+          <h2 className="hm-gate-title">Programmatic gate (GitHub Actions)</h2>
           <p className="hm-gate-help">
             Lint + typecheck + tests run on every push to working branches and
             on demand. Failures block the commit; Claude reads the log and
@@ -279,4 +282,124 @@ function tailLines(text: string, max: number): string {
   const lines = text.split('\n')
   if (lines.length <= max) return text
   return ['[…earlier output trimmed…]', ...lines.slice(-max)].join('\n')
+}
+
+/**
+ * GatetestPanel — gatetest.ai scanner integration.
+ * Sits ABOVE the GHA gate panel. Only renders when a gatetest.ai key is
+ * configured AND a repo is linked. One-click scan with quick / full tier
+ * toggle. Failed modules expand inline; passed/skipped collapse.
+ */
+function GatetestPanel({ repo }: { repo: string | null }) {
+  const gatetestKey = useSettings((s) => s.gatetestKey)
+  const [tier, setTier]       = useState<'quick' | 'full'>('full')
+  const [running, setRunning] = useState(false)
+  const [error, setError]     = useState<string | null>(null)
+  const [result, setResult]   = useState<GatetestScanResult | null>(null)
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+
+  if (!gatetestKey || !repo) return null
+
+  const run = async () => {
+    setRunning(true)
+    setError(null)
+    try {
+      const data = await scanRepo(repo, tier)
+      setResult(data)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  const failed   = result?.modules?.filter((m) => m.status === 'failed') ?? []
+  const skipped  = result?.modules?.filter((m) => m.status === 'skipped') ?? []
+  const passed   = result?.modules?.filter((m) => m.status === 'passed') ?? []
+
+  return (
+    <section
+      style={{
+        marginBottom: 16, padding: 12,
+        border: '1px solid var(--border, #2a2a2a)', borderRadius: 8,
+        background: 'rgba(99,102,241,0.04)',
+      }}
+    >
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 16 }}>🛡 gatetest.ai scanner</h2>
+          <p style={{ margin: '4px 0 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
+            Your own scanner — security · docs · compatibility · SEO. Runs against <code>{repo}</code>.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <select
+            value={tier} onChange={(e) => setTier(e.target.value as 'quick' | 'full')}
+            disabled={running}
+            style={{
+              padding: '4px 8px', borderRadius: 6,
+              border: '1px solid var(--border, #444)',
+              background: 'var(--bg-elev, #1a1a1a)', color: 'var(--text)', fontSize: 12,
+            }}
+          >
+            <option value="quick">Quick (4 modules · ~10s)</option>
+            <option value="full">Full (90 modules · up to 60s)</option>
+          </select>
+          <button className="hm-btn-primary" onClick={run} disabled={running}>
+            {running ? 'Scanning…' : 'Run scan'}
+          </button>
+        </div>
+      </header>
+
+      {error && <div className="hm-memory-error" style={{ marginTop: 12 }}>{error}</div>}
+
+      {result && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ display: 'flex', gap: 16, fontSize: 13, marginBottom: 12 }}>
+            <span><strong>{result.totalIssues}</strong> issues</span>
+            <span style={{ color: 'var(--ok, #22c55e)' }}>✓ {passed.length} passed</span>
+            <span style={{ color: 'var(--error, #ef4444)' }}>✗ {failed.length} failed</span>
+            {skipped.length > 0 && <span style={{ color: 'var(--text-muted)' }}>· {skipped.length} skipped</span>}
+            <span style={{ color: 'var(--text-muted)', marginLeft: 'auto' }}>
+              {result.duration?.toFixed(1)}s · tier: {result.tier}
+            </span>
+          </div>
+
+          {failed.map((m) => (
+            <details
+              key={m.name}
+              open={expanded[m.name] ?? true}
+              onToggle={(e) => setExpanded((s) => ({ ...s, [m.name]: (e.target as HTMLDetailsElement).open }))}
+              style={{
+                marginBottom: 8, padding: 8,
+                background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.25)',
+                borderRadius: 6,
+              }}
+            >
+              <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--error)' }}>
+                ✗ <strong>{m.name}</strong> · {m.issues ?? 0} issue{m.issues === 1 ? '' : 's'}
+              </summary>
+              {m.details && m.details.length > 0 && (
+                <ul style={{ margin: '8px 0 0 0', paddingLeft: 20, fontSize: 12 }}>
+                  {m.details.map((d, i) => <li key={i}>{d}</li>)}
+                </ul>
+              )}
+            </details>
+          ))}
+
+          {(passed.length > 0 || skipped.length > 0) && (
+            <details style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+              <summary style={{ cursor: 'pointer' }}>
+                {passed.length} passed, {skipped.length} skipped — click to expand
+              </summary>
+              <ul style={{ margin: '8px 0 0 0', paddingLeft: 20 }}>
+                {passed.map((m) => <li key={m.name} style={{ color: 'var(--ok)' }}>✓ {m.name}</li>)}
+                {skipped.map((m) => <li key={m.name}>· {m.name} (skipped)</li>)}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+    </section>
+  )
 }
