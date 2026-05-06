@@ -181,32 +181,54 @@ async def receive_webhook(
     .holdenmercer/gatetest-latest.json in the target repo so the dashboard
     can read it without polling gatetest.ai's API.
 
-    Auth: optional HMAC signature in X-Gatetest-Signature. If
-    GATETEST_WEBHOOK_SECRET env var is set on the backend, signature must
-    match. Otherwise we accept the payload (open mode — fine for single-user).
+    Auth: HMAC signature in X-Gatetest-Signature, signed with
+    GATETEST_WEBHOOK_SECRET. The secret is REQUIRED — if it's not configured
+    the endpoint fails closed (503), because the handler uses a privileged
+    PAT to write to GitHub and `target_repo` comes from the payload.
 
     Note: this endpoint does NOT require require_api_key — gatetest.ai can't
-    send our session token. Anyone can POST. Mitigation: HMAC signature when
-    a secret is configured.
+    send our session token. Auth is HMAC signature only.
     """
     secret = os.environ.get("GATETEST_WEBHOOK_SECRET", "").strip()
-    if secret:
-        import hashlib
-        import hmac
-        expected = hmac.new(
-            secret.encode("utf-8"),
-            json.dumps(payload, sort_keys=True).encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
-        provided = (x_gatetest_signature or "").replace("sha256=", "").strip()
-        if not hmac.compare_digest(expected, provided):
-            raise HTTPException(status_code=401, detail="Invalid webhook signature.")
+    if not secret:
+        raise HTTPException(
+            status_code=503,
+            detail="Webhook secret not configured. Set GATETEST_WEBHOOK_SECRET on the backend.",
+        )
+    import hashlib
+    import hmac
+    expected = hmac.new(
+        secret.encode("utf-8"),
+        json.dumps(payload, sort_keys=True).encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    provided = (x_gatetest_signature or "").replace("sha256=", "").strip()
+    if not hmac.compare_digest(expected, provided):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature.")
 
     target_repo = _extract_target_repo(payload)
     if not target_repo:
         raise HTTPException(
             status_code=400,
             detail="Webhook payload missing repo_url / repository / repo field.",
+        )
+
+    # Allowlist target_repo to repos owned by the configured org/user. Even
+    # with a valid signature the handler must not write to arbitrary repos —
+    # if the signing secret ever leaks, this stops attacker pivot to anything
+    # the PAT can reach.
+    from core.config import get_settings as _get_settings_for_allowlist
+    allowed_owner = (_get_settings_for_allowlist().gluecron_github_org or "").strip().lower()
+    if not allowed_owner:
+        raise HTTPException(
+            status_code=503,
+            detail="Webhook target allowlist not configured. Set GLUECRON_GITHUB_ORG on the backend.",
+        )
+    target_owner = target_repo.split("/", 1)[0].strip().lower()
+    if target_owner != allowed_owner:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Webhook target_repo '{target_repo}' is not in the allowed org '{allowed_owner}'.",
         )
 
     # Persist to the target repo. Uses the centrally-configured PAT so we
