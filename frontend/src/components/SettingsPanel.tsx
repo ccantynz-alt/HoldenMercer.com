@@ -47,11 +47,15 @@ export function SettingsPanel({ open, onClose }: Props) {
     setNotifyState(next)
   }
 
-  const anthropicKey  = useSettings((s) => s.anthropicKey)
-  const githubToken   = useSettings((s) => s.githubToken)
-  const githubOrg     = useSettings((s) => s.githubOrg)
-  const autonomy      = useSettings((s) => s.autonomy)
-  const defaultModel  = useSettings((s) => s.defaultModel)
+  const anthropicKey     = useSettings((s) => s.anthropicKey)
+  const githubToken      = useSettings((s) => s.githubToken)
+  const githubOrg        = useSettings((s) => s.githubOrg)
+  const autonomy         = useSettings((s) => s.autonomy)
+  const defaultModel     = useSettings((s) => s.defaultModel)
+  const selfRepairRepo   = useSettings((s) => s.selfRepairRepo)
+  const selfRepairBranch = useSettings((s) => s.selfRepairBranch)
+  const setSelfRepairRepo   = useSettings((s) => s.setSelfRepairRepo)
+  const setSelfRepairBranch = useSettings((s) => s.setSelfRepairBranch)
   const setAnthropic  = useSettings((s) => s.setAnthropicKey)
   const setGhToken    = useSettings((s) => s.setGithubToken)
   const setGhOrg      = useSettings((s) => s.setGithubOrg)
@@ -191,6 +195,42 @@ export function SettingsPanel({ open, onClose }: Props) {
             <button className="hm-btn-primary" onClick={enableNotifications}>
               Enable browser notifications
             </button>
+          )}
+        </section>
+
+        <section className="hm-drawer-section">
+          <h3 className="hm-drawer-section-title">Self-repair</h3>
+          <p className="hm-drawer-help">
+            Holden Mercer can read + edit its OWN code. Point this at the repo
+            that hosts this dashboard, and the <strong>🔧 Fix this</strong> button
+            in the header — plus the error-boundary "Send to Claude" path on
+            crashes — will dispatch background tasks against it.
+            <br /><br />
+            Default: <code>ccantynz-alt/HoldenMercer.com</code>. Change if you've
+            forked or self-host.
+          </p>
+          <input
+            className="hm-input"
+            type="text"
+            value={selfRepairRepo}
+            onChange={(e) => setSelfRepairRepo(e.target.value)}
+            placeholder="ccantynz-alt/HoldenMercer.com"
+            spellCheck={false}
+          />
+          <input
+            className="hm-input"
+            type="text"
+            value={selfRepairBranch}
+            onChange={(e) => setSelfRepairBranch(e.target.value)}
+            placeholder="(default branch — leave empty unless you target a fork branch)"
+            spellCheck={false}
+            style={{ marginTop: 8 }}
+          />
+          {selfRepairRepo && (
+            <p className="hm-drawer-confirm">
+              Self-repair targets: <code>{selfRepairRepo}</code>
+              {selfRepairBranch ? <> @ <code>{selfRepairBranch}</code></> : null}
+            </p>
           )}
         </section>
 

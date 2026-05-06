@@ -4386,3 +4386,64 @@ body {
 .hm-home-project-when {
   white-space: nowrap;
 }
+
+/* ── Fix-this button + self-repair dialog + crash boundary ──────────────── */
+
+.hm-fix-btn {
+  margin-left: auto;
+  /* Pulls toward the right side, after the StatusBar */
+}
+
+.hm-fix-modal {
+  width: min(560px, calc(100vw - 32px));
+  max-width: 560px;
+}
+
+.hm-fix-modal .hm-textarea {
+  min-height: 160px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* Crash fallback */
+.hm-crash {
+  max-width: 760px;
+  margin: 60px auto;
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.hm-crash h1 {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hm-crash p {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.hm-crash-trace {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  max-height: 400px;
+  overflow: auto;
+}
+
+.hm-crash-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}

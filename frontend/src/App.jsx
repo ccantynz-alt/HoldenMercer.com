@@ -7,6 +7,8 @@ import { ProjectSidebar } from './components/ProjectSidebar'
 import { ProjectShell } from './components/ProjectShell'
 import { NewProjectModal } from './components/NewProjectModal'
 import { SettingsPanel } from './components/SettingsPanel'
+import { FixThisButton } from './components/FixThisButton'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { useAuth } from './stores/auth'
 import { useProjects } from './stores/projects'
 
@@ -99,49 +101,67 @@ export default function App() {
   }
 
   return (
-    <div className="hm-app">
-      <header className="hm-app-header">
-        <button
-          className="hm-icon-btn hm-sidebar-toggle"
-          onClick={() => setSidebarOpen((v) => !v)}
-          aria-label="Toggle projects"
-          title="Toggle projects"
-        >
-          ☰
-        </button>
-        <div className="hm-app-brand" onClick={goHome} title="Home">
-          <BoltIcon />
-          <span>Holden&nbsp;Mercer</span>
+    <ErrorBoundary
+      fallback={(errorText, reset) => (
+        <div className="hm-crash">
+          <h1>The dashboard hit an error.</h1>
+          <p>This is real — not a placeholder. The fix is built in.</p>
+          <pre className="hm-crash-trace">{errorText}</pre>
+          <div className="hm-crash-actions">
+            <button className="hm-btn-ghost" onClick={reset}>Try again</button>
+            {/* The FixThisButton is also rendered here, prefilled with the
+                error context. Clicking it opens the dialog so Claude can be
+                pointed at the actual crash. */}
+            <FixThisButton prefill={`The dashboard crashed with:\n\n${errorText}\n\nFix the underlying cause.`} />
+          </div>
         </div>
-        <StatusBar />
-        <button
-          className="hm-icon-btn hm-settings-btn"
-          onClick={() => setSettingsOpen(true)}
-          aria-label="Settings"
-          title="Settings"
-        >
-          <GearIcon />
-        </button>
-      </header>
+      )}
+    >
+      <div className="hm-app">
+        <header className="hm-app-header">
+          <button
+            className="hm-icon-btn hm-sidebar-toggle"
+            onClick={() => setSidebarOpen((v) => !v)}
+            aria-label="Toggle projects"
+            title="Toggle projects"
+          >
+            ☰
+          </button>
+          <div className="hm-app-brand" onClick={goHome} title="Home">
+            <BoltIcon />
+            <span>Holden&nbsp;Mercer</span>
+          </div>
+          <StatusBar />
+          <FixThisButton />
+          <button
+            className="hm-icon-btn hm-settings-btn"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Settings"
+            title="Settings"
+          >
+            <GearIcon />
+          </button>
+        </header>
 
-      <div className="hm-app-body">
-        <ProjectSidebar
-          isOpen={sidebarOpen}
-          onNewProject={() => { setSidebarOpen(false); setNewProjectOpen(true) }}
-          onPickProject={() => setSidebarOpen(false)}
-        />
-        <main className="hm-app-main" onClick={() => sidebarOpen && setSidebarOpen(false)}>
-          <ProjectShell
-            onNewProject={() => setNewProjectOpen(true)}
-            onOpenSettings={() => setSettingsOpen(true)}
+        <div className="hm-app-body">
+          <ProjectSidebar
+            isOpen={sidebarOpen}
+            onNewProject={() => { setSidebarOpen(false); setNewProjectOpen(true) }}
+            onPickProject={() => setSidebarOpen(false)}
           />
-        </main>
+          <main className="hm-app-main" onClick={() => sidebarOpen && setSidebarOpen(false)}>
+            <ProjectShell
+              onNewProject={() => setNewProjectOpen(true)}
+              onOpenSettings={() => setSettingsOpen(true)}
+            />
+          </main>
+        </div>
+
+        <SystemHealth />
+
+        <NewProjectModal open={newProjectOpen} onClose={() => setNewProjectOpen(false)} />
+        <SettingsPanel   open={settingsOpen}   onClose={() => setSettingsOpen(false)} />
       </div>
-
-      <SystemHealth />
-
-      <NewProjectModal open={newProjectOpen} onClose={() => setNewProjectOpen(false)} />
-      <SettingsPanel   open={settingsOpen}   onClose={() => setSettingsOpen(false)} />
-    </div>
+    </ErrorBoundary>
   )
 }
