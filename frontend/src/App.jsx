@@ -7,9 +7,8 @@ import { ProjectSidebar } from './components/ProjectSidebar'
 import { ProjectShell } from './components/ProjectShell'
 import { NewProjectModal } from './components/NewProjectModal'
 import { SettingsPanel } from './components/SettingsPanel'
-import { Discover } from './components/Discover'
-import { PublicProject } from './components/PublicProject'
 import { useAuth } from './stores/auth'
+import { useProjects } from './stores/projects'
 
 const BoltIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -26,27 +25,22 @@ const GearIcon = () => (
 
 const ENTERED_KEY = 'holdenmercer:entered:v1'
 
-/**
- * Resolve the current view from the URL hash. Public views (`#discover`,
- * `#p/<owner>/<repo>`) bypass the login wall — they render straight from
- * GitHub's public API so anyone can read them.
- */
+/** Hash-based routing: #dashboard / #home (landing). The previous
+ *  #discover and #p/<owner>/<repo> public routes were removed for
+ *  security — single-user power tool, no need to publish anything. */
 function readView() {
-  if (typeof window === 'undefined') return { kind: 'landing' }
+  if (typeof window === 'undefined') return 'landing'
   const h = window.location.hash || ''
-  if (h === '#dashboard') return { kind: 'dashboard' }
-  if (h === '#home')      return { kind: 'landing' }
-  if (h === '#discover')  return { kind: 'discover' }
-  const pub = h.match(/^#p\/([^/]+)\/([^/?#]+)/)
-  if (pub) return { kind: 'public', owner: pub[1], repo: pub[2] }
-  // Default: previously-entered users land on dashboard, first-timers on landing
-  try { return localStorage.getItem(ENTERED_KEY) === '1' ? { kind: 'dashboard' } : { kind: 'landing' } }
-  catch { return { kind: 'landing' } }
+  if (h === '#dashboard') return 'dashboard'
+  if (h === '#home')      return 'landing'
+  try { return localStorage.getItem(ENTERED_KEY) === '1' ? 'dashboard' : 'landing' }
+  catch { return 'landing' }
 }
 
 export default function App() {
   const authStatus = useAuth((s) => s.status)
   const bootstrap  = useAuth((s) => s.bootstrap)
+  const setActiveProject = useProjects((s) => s.setActive)
 
   const [view, setView] = useState(readView)
   const [newProjectOpen, setNewProjectOpen] = useState(false)
@@ -58,26 +52,26 @@ export default function App() {
 
   const enter = () => {
     try { localStorage.setItem(ENTERED_KEY, '1') } catch {}
-    setView({ kind: 'dashboard' })
+    setView('dashboard')
     if (window.location.hash !== '#dashboard') window.location.hash = '#dashboard'
   }
 
   const goLanding = () => {
-    setView({ kind: 'landing' })
+    setView('landing')
     if (window.location.hash) {
       history.replaceState(null, '', window.location.pathname + window.location.search)
     }
   }
 
-  const goDiscover = () => {
-    setView({ kind: 'discover' })
-    if (window.location.hash !== '#discover') window.location.hash = '#discover'
-  }
-
-  const openPublicProject = (owner, repo) => {
-    setView({ kind: 'public', owner, repo })
-    const h = `#p/${owner}/${repo}`
-    if (window.location.hash !== h) window.location.hash = h
+  // Click the brand → if we're in the dashboard, deselect to AdminHome.
+  // Long-press / shift-click would go to landing, but that's overkill —
+  // landing is reachable via #home in the URL bar.
+  const goHome = () => {
+    if (view === 'dashboard') {
+      setActiveProject(null)
+    } else {
+      goLanding()
+    }
   }
 
   useEffect(() => {
@@ -86,16 +80,8 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
-  // Public views — no auth required, no Holden Mercer backend involved
-  if (view.kind === 'discover') {
-    return <Discover onOpenProject={openPublicProject} onBackToLanding={goLanding} />
-  }
-  if (view.kind === 'public') {
-    return <PublicProject owner={view.owner} repo={view.repo} onBack={goDiscover} />
-  }
-
-  if (view.kind === 'landing') {
-    return <Landing onEnter={enter} onDiscover={goDiscover} />
+  if (view === 'landing') {
+    return <Landing onEnter={enter} />
   }
 
   // Dashboard requires login.
@@ -123,7 +109,7 @@ export default function App() {
         >
           ☰
         </button>
-        <div className="hm-app-brand" onClick={goLanding} title="Back to landing">
+        <div className="hm-app-brand" onClick={goHome} title="Home">
           <BoltIcon />
           <span>Holden&nbsp;Mercer</span>
         </div>
@@ -145,7 +131,10 @@ export default function App() {
           onPickProject={() => setSidebarOpen(false)}
         />
         <main className="hm-app-main" onClick={() => sidebarOpen && setSidebarOpen(false)}>
-          <ProjectShell />
+          <ProjectShell
+            onNewProject={() => setNewProjectOpen(true)}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
         </main>
       </div>
 

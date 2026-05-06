@@ -4159,3 +4159,230 @@ body {
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* ── Admin Home ─────────────────────────────────────────────────────────── */
+
+.hm-home {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 24px clamp(16px, 4vw, 32px);
+  max-width: 1180px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.hm-home-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.hm-home-title {
+  font-family: var(--font-display);
+  font-size: clamp(26px, 3.5vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.hm-home-tagline {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 13.5px;
+  max-width: 640px;
+  line-height: 1.55;
+}
+
+.hm-home-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Stat cards */
+.hm-home-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.hm-home-stat {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: all var(--transition);
+}
+.hm-home-stat.is-gold {
+  background: var(--accent-b-soft);
+  border-color: var(--accent-b);
+}
+
+.hm-home-stat-value {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-primary);
+}
+.hm-home-stat.is-gold .hm-home-stat-value { color: var(--accent-b-deep); }
+
+.hm-home-stat-label {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* Sections */
+.hm-home-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hm-home-section-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hm-home-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 12px 0;
+}
+
+/* Activity feed */
+.hm-home-feed {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hm-home-event {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: all var(--transition);
+}
+.hm-home-event:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-bright);
+}
+
+.hm-home-kind {
+  text-align: center;
+  font-size: 14px;
+}
+.hm-home-kind-commit { color: var(--accent-b-deep); }
+.hm-home-kind-pr     { color: #6c8a4a; }
+.hm-home-kind-run    { color: var(--text-muted); }
+
+.hm-home-event-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hm-home-event-title {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hm-home-event-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hm-home-event-link {
+  font-size: 11px;
+  color: var(--accent-b-deep);
+  text-decoration: none;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.hm-home-event-link:hover {
+  background: var(--accent-b-soft);
+}
+
+/* Recent project cards */
+.hm-home-projects {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.hm-home-project-card {
+  text-align: left;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: all var(--transition);
+  font-family: inherit;
+}
+.hm-home-project-card:hover {
+  border-color: var(--accent-b);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+
+.hm-home-project-name {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hm-home-project-tag {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.hm-home-project-foot {
+  margin-top: 6px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.hm-home-project-foot code {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+.hm-home-project-when {
+  white-space: nowrap;
+}
