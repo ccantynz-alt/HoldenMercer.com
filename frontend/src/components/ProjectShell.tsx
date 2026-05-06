@@ -26,6 +26,7 @@ import { LinkRepoModal } from './LinkRepoModal'
 import { ResizeHandle } from './ResizeHandle'
 import { AdminHome } from './AdminHome'
 import { AuditLog } from './AuditLog'
+import { ProjectReadiness } from './ProjectReadiness'
 import { dispatchTask } from '../lib/jobs'
 
 type TabId = 'brief' | 'planner' | 'console' | 'preview' | 'gate' | 'tasks' | 'memory' | 'swarm'
@@ -122,6 +123,11 @@ export function ProjectShell({ onNewProject, onOpenSettings }: ProjectShellProps
           {project.status}
         </span>
       </header>
+
+      <ProjectReadiness
+        projectId={project.id}
+        onJumpToTab={(t) => setTab(t)}
+      />
 
       <nav className="hm-tabs">
         {TABS.map((t) => {
