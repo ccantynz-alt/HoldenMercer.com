@@ -2,6 +2,17 @@
   "version": 1,
   "active": [
     {
+      "branch": "claude/admin-gate-tab",
+      "agent": "task:20260506-121528-23b7e5",
+      "scope": [
+        "frontend/src/components/AdminGate.tsx",
+        "frontend/src/components/AdminGate.test.ts",
+        "frontend/src/components/ProjectShell.tsx"
+      ],
+      "startedAt": "2026-05-06T12:17:06+00:00",
+      "intent": "Add a Gate tab to the admin panel (SystemHome) so the user can run/fix code from the dashboard's home view without first picking a project. New AdminGate.tsx component reuses lib/gate.ts; defaults to the self-repair repo, with a picker for "
+    },
+    {
       "branch": "claude/fix-react-185-auditlog-loop",
       "agent": "task:20260506-121439-feba8f",
       "scope": [
