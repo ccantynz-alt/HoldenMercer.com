@@ -10,6 +10,7 @@ import { SettingsPanel } from './components/SettingsPanel'
 import { FixThisButton } from './components/FixThisButton'
 import { CommandPalette } from './components/CommandPalette'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { ToastStack } from './components/ToastStack'
 import { useAuth } from './stores/auth'
 import { useProjects } from './stores/projects'
 
@@ -221,6 +222,7 @@ export default function App() {
           }}
           onGoHome={() => setActiveProject(null)}
         />
+        <ToastStack />
       </div>
     </ErrorBoundary>
   )

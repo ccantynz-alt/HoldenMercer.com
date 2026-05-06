@@ -18,6 +18,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSettings } from '../stores/settings'
 import { estimateTaskCost } from '../stores/usage'
+import { toast } from '../stores/toast'
 import { dispatchTask } from '../lib/jobs'
 
 interface Props {
@@ -99,11 +100,10 @@ export function FixThisButton({ prefill, onDispatched }: Props) {
           `in this repo. One more step (one-time per repo): add your Anthropic ` +
           `API key as a repo secret called ANTHROPIC_API_KEY:\n${dispatched.secret_setup_url}`
         : ''
-      alert(
-        `Self-repair task dispatched (${dispatched.task_id}).\n\n` +
-        `Claude will work on a branch (claude/fix-…), open a PR, and the gate ` +
-        `must go green before merge. Check Tasks tab for progress; once it ` +
-        `merges + Vercel redeploys, the fix is live.${installedNote}`
+      toast(
+        'success',
+        `Self-repair task dispatched`,
+        `task ${dispatched.task_id} — Tasks tab → 📜 Logs for live progress${installedNote ? '\n\n' + installedNote : ''}`,
       )
     } catch (err) {
       setError((err as Error).message)

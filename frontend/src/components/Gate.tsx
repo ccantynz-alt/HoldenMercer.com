@@ -19,6 +19,7 @@ import {
 import { scanRepo, type GatetestScanResult, type GatetestModule } from '../lib/gatetest'
 import { dispatchTask } from '../lib/jobs'
 import { estimateTaskCost } from '../stores/usage'
+import { toast } from '../stores/toast'
 
 interface Props {
   projectId: string
@@ -381,10 +382,10 @@ function GatetestPanel({ repo }: { repo: string | null }) {
         brief:     briefPrefix + `gatetest.ai found ${m.issues ?? 0} issue(s) in module "${m.name}" — auto-repair task dispatched from HM Gate tab.`,
         max_iters: 30,
       })
-      alert(
-        `Self-repair task dispatched for "${m.name}" (${dispatched.task_id}).\n\n` +
-        `Watch the Tasks tab → 📜 Logs to see live progress. Agent will branch, ` +
-        `fix, open a PR, and the gate must go green before merge.`
+      toast(
+        'success',
+        `Fix dispatched for "${m.name}"`,
+        `task ${dispatched.task_id} — Tasks tab → 📜 Logs for live progress`
       )
     } catch (err) {
       setError(`Fix dispatch failed: ${(err as Error).message}`)
@@ -409,10 +410,10 @@ function GatetestPanel({ repo }: { repo: string | null }) {
         brief:     briefPrefix + `gatetest.ai found ${failedModules.length} failed modules — auto-repair task dispatched from HM Gate tab.`,
         max_iters: 50,
       })
-      alert(
-        `Auto-fix task dispatched for ${failedModules.length} failed modules (${dispatched.task_id}).\n\n` +
-        `Watch the Tasks tab → 📜 Logs to see live progress. Agent will branch, ` +
-        `fix all findings, open a single PR, run gatetest.ai again to verify green.`
+      toast(
+        'success',
+        `Auto-fix dispatched for ${failedModules.length} module${failedModules.length === 1 ? '' : 's'}`,
+        `task ${dispatched.task_id} — Tasks tab → 📜 Logs for live progress`
       )
     } catch (err) {
       setError(`Auto-fix dispatch failed: ${(err as Error).message}`)
