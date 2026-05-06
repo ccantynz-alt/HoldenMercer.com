@@ -38,6 +38,19 @@ interface SettingsState {
   setSelfRepairBranch: (branch: string) => void
 }
 
+/** Strip `https://github.com/` prefix, trailing slashes, and any trailing
+ *  `.git`. Forgiving so users can paste either `owner/repo` or the full
+ *  GitHub URL without breaking link construction downstream. */
+function normalizeRepo(input: string): string {
+  return input
+    .trim()
+    .replace(/^https?:\/\/github\.com\//i, '')
+    .replace(/^https?:\/\/gluecron\.com\//i, '')
+    .replace(/^git@github\.com:/i, '')
+    .replace(/\.git$/i, '')
+    .replace(/\/+$/, '')
+}
+
 export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
@@ -57,7 +70,7 @@ export const useSettings = create<SettingsState>()(
       setDefaultModel: (model) => set({ defaultModel: model }),
       setDockedPane:   (pane)  => set({ dockedPane: pane }),
       setDockedWidth:  (px)    => set({ dockedWidth: Math.max(280, Math.min(960, Math.round(px))) }),
-      setSelfRepairRepo:   (repo)   => set({ selfRepairRepo: repo.trim() }),
+      setSelfRepairRepo:   (repo)   => set({ selfRepairRepo: normalizeRepo(repo) }),
       setSelfRepairBranch: (branch) => set({ selfRepairBranch: branch.trim() }),
     }),
     { name: 'holdenmercer:settings:v1' }
