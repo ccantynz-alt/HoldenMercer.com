@@ -2,6 +2,17 @@
   "version": 1,
   "active": [
     {
+      "branch": "claude/include-component-stack-in-self-repair",
+      "agent": "task:20260506-120712-58ddc4",
+      "scope": [
+        "frontend/src/components/ErrorBoundary.tsx",
+        "frontend/src/App.jsx",
+        "frontend/src/components/ErrorBoundary.test.tsx"
+      ],
+      "startedAt": "2026-05-06T12:09:29+00:00",
+      "intent": "When the dashboard's ErrorBoundary catches a crash, the FixThisButton it renders is prefilled with only the JS error stack (often minified to \"Error #185\" with no useful frames in prod). The actual componentStack \u2014 which tells you WHICH com"
+    },
+    {
       "branch": "claude/harden-react-185-defenses",
       "agent": "task:20260506-114033-247d39",
       "scope": [
