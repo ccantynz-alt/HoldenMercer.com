@@ -21,7 +21,7 @@ import {
   recentCommits, openPullRequests, inProgressRuns,
   type RecentCommit, type OpenPR, type InProgressRun,
 } from '../lib/repo'
-import { checkRepoSecret } from '../lib/jobs'
+import { checkRepoSecret, setupTaskWorkflow } from '../lib/jobs'
 
 interface Props {
   onNewProject:  () => void
@@ -368,13 +368,33 @@ function SetupReadinessCard() {
           </li>
         )}
       </ul>
-      <button
-        className="hm-btn-ghost"
-        style={{ marginTop: 8 }}
-        onClick={() => setRefreshTick((n) => n + 1)}
-      >
-        Re-check
-      </button>
+      <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+        <button
+          className="hm-btn-ghost"
+          onClick={() => setRefreshTick((n) => n + 1)}
+        >
+          Re-check
+        </button>
+        <button
+          className="hm-btn-ghost"
+          onClick={async () => {
+            if (!confirm(
+              `Update / install the centralized task workflow on ${selfRepairRepo}?\n\n` +
+              `Commits the latest holden-mercer-task.yml + agent_runner.py. ` +
+              `Safe to run repeatedly — overwrites in place.`
+            )) return
+            try {
+              await setupTaskWorkflow(selfRepairRepo)
+              alert('Workflow updated. Dispatch a task to verify.')
+            } catch (err) {
+              alert(`Update failed: ${(err as Error).message}`)
+            }
+          }}
+          title="Pushes the latest workflow YAML + agent runner to the central HM repo. Run this once after merging refactor PRs."
+        >
+          Update central workflow
+        </button>
+      </div>
     </section>
   )
 }
