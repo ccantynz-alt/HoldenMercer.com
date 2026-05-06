@@ -44,7 +44,11 @@ export function Planner({ projectId, onSwitchToConsole }: Props) {
   const update           = usePlans((s) => s.update)
   const remove           = usePlans((s) => s.remove)
   const setPendingInput  = useChat((s) => s.setPendingInput)
-  const settings         = useSettings()
+  // Select fields, not the whole store, to avoid re-rendering on every
+  // unrelated settings change.
+  const anthropicKey = useSettings((s) => s.anthropicKey)
+  const defaultModel = useSettings((s) => s.defaultModel)
+  const settings = { anthropicKey, defaultModel }
 
   // Auto-pick the first plan or create a starter when the tab opens for a
   // project that has none yet.

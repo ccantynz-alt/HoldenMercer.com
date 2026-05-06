@@ -13,7 +13,7 @@
  * project.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useProjects, type Project } from '../stores/projects'
 import { useSettings } from '../stores/settings'
 import { useUsage, summarise } from '../stores/usage'
@@ -52,10 +52,30 @@ export function AdminHome({ onNewProject, onOpenProject, onOpenSettings }: Props
   const [refreshTick, setRefreshTick] = useState(0)
   const refresh = () => setRefreshTick((n) => n + 1)
 
+  // Defensive: if this effect somehow re-fires more than 10 times in 2 seconds
+  // (which would indicate an infinite loop and would crash the dashboard with
+  // React-185), bail out and surface a diagnostic instead. Belt-and-suspenders
+  // for the prod crash we've been chasing.
+  const fireCountRef = useRef<{ count: number; windowStart: number }>({ count: 0, windowStart: 0 })
+
   // Fetch on mount + when projects/key change + when manual refresh fires.
   // Depend on `projects` (zustand-stable) NOT `linked` (useMemo, may rebuild).
   // useMemo + useEffect was the React-185 max-update-depth source.
   useEffect(() => {
+    const now = Date.now()
+    const tracker = fireCountRef.current
+    if (now - tracker.windowStart > 2000) {
+      tracker.windowStart = now
+      tracker.count = 0
+    }
+    tracker.count += 1
+    if (tracker.count > 10) {
+      // eslint-disable-next-line no-console
+      console.error('AdminHome effect re-firing in a loop — aborting to protect the dashboard')
+      setError('Activity refresh aborted (loop guard tripped). Check console.')
+      return
+    }
+
     const targets = projects.filter((p) => !!p.repo)
     if (targets.length === 0) return
     if (!githubKey) {

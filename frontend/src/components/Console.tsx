@@ -69,7 +69,13 @@ export function Console({ projectId }: Props) {
   const clearThread   = useChat((s) => s.clearThread)
   const consumePending = useChat((s) => s.consumePendingInput)
 
-  const settings = useSettings()
+  // Select individual fields — `useSettings()` without a selector subscribes
+  // to the entire store, which means every settings update re-renders Console.
+  const anthropicKey = useSettings((s) => s.anthropicKey)
+  const githubToken  = useSettings((s) => s.githubToken)
+  const autonomy     = useSettings((s) => s.autonomy)
+  const defaultModel = useSettings((s) => s.defaultModel)
+  const settings = { anthropicKey, githubToken, autonomy, defaultModel }
   const token    = useAuth((s) => s.token)
 
   const [input,    setInput]    = useState('')
