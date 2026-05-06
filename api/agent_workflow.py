@@ -118,5 +118,10 @@ jobs:
           # Prefer HM_PAT (cross-repo PAT) when set, else the auto GITHUB_TOKEN
           # (works for same-repo only).
           GITHUB_TOKEN:      ${{ secrets.HM_PAT != '' && secrets.HM_PAT || secrets.GITHUB_TOKEN }}
+          # Optional: gatetest.ai API key for in-loop pre-commit validation.
+          # Empty string is fine — agent gracefully skips gatetest_check and
+          # falls back to the post-merge gate. Set this in HM repo secrets to
+          # enable the "perfect before GitHub" loop.
+          GATETEST_API_KEY:  ${{ secrets.GATETEST_API_KEY }}
         run: python .holdenmercer/agent_runner.py
 '''
