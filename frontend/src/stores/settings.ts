@@ -15,6 +15,8 @@ interface SettingsState {
   anthropicKey:  string
   githubToken:   string         // PAT used by read_github_file / list_github_repos
   githubOrg:     string         // default owner for `list_github_repos`
+  /** gatetest.ai API key (gt_live_...) for the GateTest scanner integration. */
+  gatetestKey:   string
   autonomy:      AutonomyMode
   defaultModel:  string
   /** When set + viewport is wide enough, this pane docks to the right of the
@@ -30,6 +32,7 @@ interface SettingsState {
   setAnthropicKey: (key: string) => void
   setGithubToken:  (key: string) => void
   setGithubOrg:    (org: string) => void
+  setGatetestKey:  (key: string) => void
   setAutonomy:     (mode: AutonomyMode) => void
   setDefaultModel: (model: string) => void
   setDockedPane:   (pane: DockablePane | null) => void
@@ -57,6 +60,7 @@ export const useSettings = create<SettingsState>()(
       anthropicKey: '',
       githubToken:  '',
       githubOrg:    '',
+      gatetestKey:  '',
       autonomy:     'smart',
       defaultModel: 'claude-haiku-4-5-20251001',
       dockedPane:   null,
@@ -66,6 +70,7 @@ export const useSettings = create<SettingsState>()(
       setAnthropicKey: (key)   => set({ anthropicKey: key.trim() }),
       setGithubToken:  (key)   => set({ githubToken: key.trim() }),
       setGithubOrg:    (org)   => set({ githubOrg: org.trim() }),
+      setGatetestKey:  (key)   => set({ gatetestKey: key.trim() }),
       setAutonomy:     (mode)  => set({ autonomy: mode }),
       setDefaultModel: (model) => set({ defaultModel: model }),
       setDockedPane:   (pane)  => set({ dockedPane: pane }),

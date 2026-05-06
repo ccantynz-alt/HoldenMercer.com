@@ -50,6 +50,7 @@ export function SettingsPanel({ open, onClose }: Props) {
   const anthropicKey     = useSettings((s) => s.anthropicKey)
   const githubToken      = useSettings((s) => s.githubToken)
   const githubOrg        = useSettings((s) => s.githubOrg)
+  const gatetestKey      = useSettings((s) => s.gatetestKey)
   const autonomy         = useSettings((s) => s.autonomy)
   const defaultModel     = useSettings((s) => s.defaultModel)
   const selfRepairRepo   = useSettings((s) => s.selfRepairRepo)
@@ -59,6 +60,7 @@ export function SettingsPanel({ open, onClose }: Props) {
   const setAnthropic  = useSettings((s) => s.setAnthropicKey)
   const setGhToken    = useSettings((s) => s.setGithubToken)
   const setGhOrg      = useSettings((s) => s.setGithubOrg)
+  const setGatetest   = useSettings((s) => s.setGatetestKey)
   const setAutonomy   = useSettings((s) => s.setAutonomy)
   const setModel      = useSettings((s) => s.setDefaultModel)
   const email         = useAuth((s) => s.email)
@@ -195,6 +197,31 @@ export function SettingsPanel({ open, onClose }: Props) {
             <button className="hm-btn-primary" onClick={enableNotifications}>
               Enable browser notifications
             </button>
+          )}
+        </section>
+
+        <section className="hm-drawer-section">
+          <h3 className="hm-drawer-section-title">gatetest.ai</h3>
+          <p className="hm-drawer-help">
+            API key for{' '}
+            <a href="https://www.gatetest.ai/" target="_blank" rel="noreferrer">gatetest.ai</a>
+            {' '}— your own scanner running 90 modules across security, docs,
+            compatibility, SEO. With this set, the Gate tab gets a{' '}
+            <strong>Run gatetest.ai scan</strong> button alongside the GHA gate.
+            Format: <code>gt_live_…</code>. Email{' '}
+            <a href="mailto:hello@gatetest.ai">hello@gatetest.ai</a> to get a key.
+          </p>
+          <input
+            className="hm-input"
+            type="password"
+            value={gatetestKey}
+            onChange={(e) => setGatetest(e.target.value)}
+            placeholder="gt_live_…"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          {gatetestKey && (
+            <p className="hm-drawer-confirm">Saved: <code>{mask(gatetestKey)}</code></p>
           )}
         </section>
 

@@ -19,6 +19,7 @@ from api.console import router as console_router
 from api.swarm import router as swarm_router
 from api.jobs import router as jobs_router
 from api.repo import router as repo_router
+from api.gatetest import router as gatetest_router
 
 _settings = get_settings()
 
@@ -48,6 +49,7 @@ app.include_router(console_router)
 app.include_router(swarm_router)
 app.include_router(jobs_router)
 app.include_router(repo_router)
+app.include_router(gatetest_router)
 app.include_router(gateway_router)
 app.include_router(command_router)
 app.include_router(refine_router)
