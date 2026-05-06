@@ -20,6 +20,7 @@ import { usePlans, type Plan, type PlanStatus } from '../stores/plans'
 import { useChat } from '../stores/chat'
 import { useProjects } from '../stores/projects'
 import { useSettings } from '../stores/settings'
+import { toast } from '../stores/toast'
 import { dispatchTask } from '../lib/jobs'
 
 interface Props {
@@ -139,7 +140,7 @@ export function Planner({ projectId, onSwitchToConsole }: Props) {
                 })
                 update(activePlan.id, { status: 'shipped' })
               } catch (err) {
-                alert(`Could not dispatch task: ${(err as Error).message}`)
+                toast('error', 'Could not dispatch task', (err as Error).message)
               }
             }}
           />

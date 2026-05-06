@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react'
 import { useSettings, type AutonomyMode } from '../stores/settings'
 import { useAuth } from '../stores/auth'
 import { notificationsSupported, permission, requestPermission } from '../lib/notify'
+import { toast } from '../stores/toast'
 
 interface Props {
   open:    boolean
@@ -389,7 +390,7 @@ function QuickSetup() {
       else if (d.kind === 'gatetest') setGt(d.value)
     }
     setText('')
-    alert(`Saved ${detected.length} key${detected.length === 1 ? '' : 's'} — backed up to keychain.`)
+    toast('success', `Saved ${detected.length} key${detected.length === 1 ? '' : 's'}`, 'Backed up to keychain — survives every reset.')
   }
 
   return (

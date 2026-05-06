@@ -30,6 +30,7 @@ import { MissionControl } from './MissionControl'
 import { ProjectReadiness } from './ProjectReadiness'
 import { SectionErrorBoundary } from './SectionErrorBoundary'
 import { dispatchTask } from '../lib/jobs'
+import { toast } from '../stores/toast'
 
 type TabId = 'brief' | 'planner' | 'console' | 'preview' | 'gate' | 'tasks' | 'memory' | 'swarm'
 
@@ -308,13 +309,13 @@ async function onboardProject(repo: string, name: string, branch?: string) {
         `secret called ANTHROPIC_API_KEY:\n${dispatched.secret_setup_url}\n` +
         `The task will fail without it.`
       : ''
-    alert(
-      `Onboarding task dispatched (${dispatched.task_id}).\n\n` +
-      `Check the Tasks tab for progress. The agent will work on a branch ` +
-      `(claude/onboard-…) and open a PR once it's done.${installedNote}`
+    toast(
+      'success',
+      'Onboarding task dispatched',
+      `task ${dispatched.task_id} — Tasks tab → 📜 Logs for progress${installedNote ? '\n\n' + installedNote : ''}`,
     )
   } catch (err) {
-    alert(`Could not dispatch onboarding: ${(err as Error).message}`)
+    toast('error', 'Could not dispatch onboarding', (err as Error).message)
   }
 }
 

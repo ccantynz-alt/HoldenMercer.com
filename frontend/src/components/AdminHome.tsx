@@ -22,6 +22,7 @@ import {
   type RecentCommit, type OpenPR, type InProgressRun,
 } from '../lib/repo'
 import { checkRepoSecret, setupTaskWorkflow, dispatchTask } from '../lib/jobs'
+import { toast } from '../stores/toast'
 import { SectionErrorBoundary } from './SectionErrorBoundary'
 
 interface Props {
@@ -280,12 +281,13 @@ export function AdminHome({ onNewProject, onOpenProject, onOpenSettings }: Props
                               brief:  `Revert commit ${ev.sha} on ${ev.repo} — dispatched from AdminHome.`,
                               max_iters: 20,
                             })
-                            alert(
-                              `Revert task dispatched (${dispatched.task_id}).\n\n` +
-                              `Watch Tasks tab → 📜 Logs to see the agent draft the revert PR.`
+                            toast(
+                              'success',
+                              'Revert task dispatched',
+                              `task ${dispatched.task_id} — Tasks tab → 📜 Logs`,
                             )
                           } catch (err) {
-                            alert(`Revert dispatch failed: ${(err as Error).message}`)
+                            toast('error', 'Revert dispatch failed', (err as Error).message)
                           }
                         }}
                         style={{ marginRight: 6 }}
@@ -448,9 +450,9 @@ function SetupReadinessCard() {
             )) return
             try {
               await setupTaskWorkflow(selfRepairRepo)
-              alert('Workflow updated. Dispatch a task to verify.')
+              toast('success', 'Workflow updated', 'Dispatch a task to verify.')
             } catch (err) {
-              alert(`Update failed: ${(err as Error).message}`)
+              toast('error', 'Update failed', (err as Error).message)
             }
           }}
           title="Pushes the latest workflow YAML + agent runner to the central HM repo. Run this once after merging refactor PRs."
