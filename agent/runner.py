@@ -44,13 +44,35 @@ import httpx
 
 # ── Config from environment ─────────────────────────────────────────────────
 
-REPO          = os.environ["HM_REPO"]
-TASK_ID       = os.environ["HM_TASK_ID"]
-PROMPT        = os.environ["HM_PROMPT"]
-BRIEF         = os.environ.get("HM_BRIEF", "")
-MODEL         = os.environ.get("HM_MODEL", "claude-opus-4-7")
-MAX_ITERS     = int(os.environ.get("HM_MAX_ITERS", "30"))
-BRANCH        = os.environ.get("HM_BRANCH") or None
+# SECURITY: read user-controlled inputs from a staged JSON file when set by
+# the workflow (the new step structure separates inputs from secrets). Falls
+# back to env vars for backward compat with older workflow YAMLs.
+def _load_staged_inputs() -> dict:
+    f = os.environ.get("HM_INPUTS_FILE", "")
+    if f and os.path.exists(f):
+        try:
+            import json as _json
+            with open(f, "r", encoding="utf-8") as fh:
+                return _json.load(fh)
+        except Exception:
+            pass
+    return {}
+
+_inputs = _load_staged_inputs()
+
+def _cfg(name: str, default: str = "", required: bool = False) -> str:
+    val = _inputs.get(name, os.environ.get(name, default))
+    if required and not val:
+        raise KeyError(name)
+    return val
+
+REPO          = _cfg("HM_REPO", required=True)
+TASK_ID       = _cfg("HM_TASK_ID", required=True)
+PROMPT        = _cfg("HM_PROMPT", required=True)
+BRIEF         = _cfg("HM_BRIEF")
+MODEL         = _cfg("HM_MODEL", "claude-haiku-4-5-20251001")
+MAX_ITERS     = int(_cfg("HM_MAX_ITERS", "30") or "30")
+BRANCH        = _cfg("HM_BRANCH") or None
 ANTHROPIC_KEY = os.environ["ANTHROPIC_API_KEY"]
 GH_TOKEN      = os.environ["GITHUB_TOKEN"]
 
