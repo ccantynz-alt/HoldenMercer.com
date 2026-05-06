@@ -5,11 +5,9 @@
  * tab embeds it in an iframe. The iframe auto-reloads after every Console
  * turn so you watch the site update as Claude commits.
  *
- * Common URLs to point this at:
- *   • Vercel preview / production:  https://your-project.vercel.app
- *   • Cloudflare Pages:             https://your-project.pages.dev
- *   • A local dev server:           http://localhost:5173
- *   • Any staging URL
+ * Point this at any HTTP(s) URL: a CronTech Sites deploy, a preview from
+ * your host of choice, or a local dev server (e.g. http://localhost:5173).
+ * The Preview tab doesn't care who hosts it — it just embeds the URL.
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -121,10 +119,10 @@ export function Preview({ projectId }: Props) {
         <div className="hm-placeholder">
           <h2 className="hm-placeholder-title">Set a preview URL</h2>
           <p className="hm-placeholder-body">
-            Point this tab at your deployed site (Vercel preview, production URL,
-            local dev server, anything that responds in a browser). The iframe
-            reloads automatically after every Console turn so you watch the
-            site change as Claude commits.
+            Point this tab at your deployed site — a CronTech Sites URL, a
+            preview from any host, or a local dev server. The iframe reloads
+            automatically after every Console turn so you watch the site change
+            as Claude commits.
           </p>
           <p className="hm-placeholder-body" style={{ marginTop: 8 }}>
             <button className="hm-btn-primary" onClick={() => setEditing(true)}>

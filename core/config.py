@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     gluecron_api_url:  str = "https://gluecron.com/api/v2"
     gluecron_raw_base: str = "https://gluecron.com"
 
+    # Notify provider for outbound mail / SMS / push. CronTech replaces the
+    # Mailgun + Twilio + Web Push stack. "log" is the safe default (no real
+    # sends, just stderr). "crontech" is a stub until specs land.
+    notify_provider: str = "log"
+
     # CronTech — deployment target + voice provider
     crontech_api_url: str = ""        # e.g. https://api.crontech.ai
     crontech_api_key: str = ""        # CronTech service account key
