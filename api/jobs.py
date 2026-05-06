@@ -421,10 +421,74 @@ async def delete_task_run(req: RunIdRequest):
     return {"deleted": True, "run_id": req.run_id}
 
 
+class RunLogsRequest(BaseModel):
+    run_id:       int
+    github_token: str = ""
+
+
 class CheckSecretRequest(BaseModel):
     repo:         str
     secret_name:  str = "ANTHROPIC_API_KEY"
     github_token: str = ""
+
+
+@router.post("/run-logs", dependencies=[Depends(require_api_key)])
+async def get_run_logs(req: RunLogsRequest):
+    """Fetch the live logs for a workflow run from the centralized HM repo.
+
+    Strategy: list jobs for the run, then concat each job's logs (plain text).
+    GitHub returns logs even for in-progress runs (partial), so polling this
+    endpoint gives a live-ish feed without needing true streaming.
+    """
+    token = _resolve_token(req.github_token)
+    if not token:
+        raise HTTPException(status_code=400, detail="No GitHub token configured.")
+    from core.config import get_settings as _get_settings
+    central_repo = _get_settings().hm_dispatch_repo
+    headers = _gh_headers(token)
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        # List jobs for this run
+        jobs_resp = await client.get(
+            f"{GITHUB_API}/repos/{central_repo}/actions/runs/{req.run_id}/jobs",
+            headers=headers,
+        )
+        if jobs_resp.status_code == 404:
+            return {"logs": "", "status": "not_found", "jobs": []}
+        jobs_resp.raise_for_status()
+        jobs = jobs_resp.json().get("jobs", [])
+
+        log_chunks: list[str] = []
+        for job in jobs:
+            job_id   = job.get("id")
+            job_name = job.get("name", "job")
+            log_chunks.append(f"\n━━━━━━ {job_name} ({job.get('status')}) ━━━━━━\n")
+            try:
+                log_resp = await client.get(
+                    f"{GITHUB_API}/repos/{central_repo}/actions/jobs/{job_id}/logs",
+                    headers={**headers, "Accept": "text/plain"},
+                )
+                if log_resp.status_code == 200:
+                    # Trim each line's leading timestamp prefix for readability;
+                    # keep the raw content for forensic detail.
+                    text = log_resp.text
+                    log_chunks.append(text)
+                elif log_resp.status_code == 404:
+                    log_chunks.append("(logs not yet available — job not started)")
+                else:
+                    log_chunks.append(f"(log fetch failed: HTTP {log_resp.status_code})")
+            except Exception as exc:  # noqa: BLE001
+                log_chunks.append(f"(log fetch crashed: {exc})")
+
+    # Cap at ~200KB so big logs don't blow the SSE/JSON response budget
+    full = "".join(log_chunks)
+    if len(full) > 200_000:
+        full = full[:100_000] + "\n\n[…truncated middle…]\n\n" + full[-90_000:]
+
+    return {
+        "logs":   full,
+        "status": jobs[0].get("status") if jobs else "unknown",
+        "jobs":   [{"name": j.get("name"), "status": j.get("status"), "conclusion": j.get("conclusion")} for j in jobs],
+    }
 
 
 @router.post("/check-secret", dependencies=[Depends(require_api_key)])

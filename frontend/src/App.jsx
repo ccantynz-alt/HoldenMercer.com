@@ -8,6 +8,7 @@ import { ProjectShell } from './components/ProjectShell'
 import { NewProjectModal } from './components/NewProjectModal'
 import { SettingsPanel } from './components/SettingsPanel'
 import { FixThisButton } from './components/FixThisButton'
+import { CommandPalette } from './components/CommandPalette'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { useAuth } from './stores/auth'
 import { useProjects } from './stores/projects'
@@ -172,6 +173,17 @@ export default function App() {
 
         <NewProjectModal open={newProjectOpen} onClose={() => setNewProjectOpen(false)} />
         <SettingsPanel   open={settingsOpen}   onClose={() => setSettingsOpen(false)} />
+        <CommandPalette
+          onNewProject={() => setNewProjectOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenFix={() => {
+            // Click the header's FixThisButton programmatically by dispatching
+            // a custom event the button listens for. Cheaper than rewiring.
+            const btn = document.querySelector('.hm-fix-btn')
+            if (btn instanceof HTMLElement) btn.click()
+          }}
+          onGoHome={() => setActiveProject(null)}
+        />
       </div>
     </ErrorBoundary>
   )
