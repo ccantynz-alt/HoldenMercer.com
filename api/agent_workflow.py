@@ -84,27 +84,36 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
         with:
           python-version: '3.11'
 
       - name: Install agent deps
         run: pip install -q anthropic httpx
 
-      - name: Run the agent
+      # SECURITY: stage user-controlled inputs to a JSON file in a step that
+      # has NO access to secrets. The next step has secrets but only reads
+      # the staged file, so even a malicious prompt can't exfiltrate the
+      # API key via shell injection.
+      - name: Stage task inputs (no secrets here)
         env:
-          # If target_repo input is set, the agent operates against THAT repo.
-          # Otherwise it falls back to the repo this workflow lives in
-          # (preserves the existing self-repair flow).
-          HM_REPO:           ${{ github.event.inputs.target_repo != '' && github.event.inputs.target_repo || github.repository }}
-          HM_TASK_ID:        ${{ github.event.inputs.task_id }}
-          HM_PROMPT:         ${{ github.event.inputs.prompt }}
-          HM_BRIEF:          ${{ github.event.inputs.brief }}
-          HM_MODEL:          ${{ github.event.inputs.model }}
-          HM_MAX_ITERS:      ${{ github.event.inputs.max_iters }}
-          HM_BRANCH:         ${{ github.event.inputs.branch }}
+          HM_REPO:        ${{ github.event.inputs.target_repo != '' && github.event.inputs.target_repo || github.repository }}
+          HM_TASK_ID:     ${{ github.event.inputs.task_id }}
+          HM_PROMPT:      ${{ github.event.inputs.prompt }}
+          HM_BRIEF:       ${{ github.event.inputs.brief }}
+          HM_MODEL:       ${{ github.event.inputs.model }}
+          HM_MAX_ITERS:   ${{ github.event.inputs.max_iters }}
+          HM_BRANCH:      ${{ github.event.inputs.branch }}
+        run: |
+          mkdir -p /tmp/hm
+          python -c "import json,os; json.dump({k: os.environ.get(k,'') for k in ['HM_REPO','HM_TASK_ID','HM_PROMPT','HM_BRIEF','HM_MODEL','HM_MAX_ITERS','HM_BRANCH']}, open('/tmp/hm/inputs.json','w'))"
+          chmod 600 /tmp/hm/inputs.json
+
+      - name: Run the agent (secrets, no user input here)
+        env:
+          HM_INPUTS_FILE:    /tmp/hm/inputs.json
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # Prefer HM_PAT (cross-repo PAT) when set, else the auto GITHUB_TOKEN
           # (works for same-repo only).

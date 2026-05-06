@@ -32,6 +32,9 @@ on:
       - 'holden/**'
       - 'hm/**'
 
+# Minimum-privilege default. The gate only reads the repo + writes nothing.
+permissions: read-all
+
 jobs:
   gate:
     name: Lint + typecheck + tests
@@ -39,18 +42,18 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
       - name: Set up Node
         if: ${{ hashFiles('**/package.json') != '' }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af  # v4.1.0
         with:
           node-version: '20'
           cache: 'npm'
 
       - name: Set up Python
         if: ${{ hashFiles('requirements.txt') != '' || hashFiles('pyproject.toml') != '' || hashFiles('**/requirements.txt') != '' }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
         with:
           python-version: '3.11'
 
