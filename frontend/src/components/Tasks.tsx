@@ -12,7 +12,7 @@
  * the same.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useProjects } from '../stores/projects'
 import {
   fetchTaskResult, listTaskRuns, setupTaskWorkflow, setupCronWorkflow,
@@ -54,22 +54,30 @@ export function Tasks({ projectId }: Props) {
   const repo   = project?.repo ?? null
   const branch = project?.branch ?? null
 
-  const refresh = useMemo(() => async () => {
+  const [refreshTick, setRefreshTick] = useState(0)
+  const refresh = useCallback(() => setRefreshTick((n) => n + 1), [])
+
+  // Inline body — useMemo around an async fn doesn't guarantee identity and
+  // caused React-185 max-update-depth crashes.
+  useEffect(() => {
     if (!repo) return
+    let cancelled = false
     setLoading(true)
     setError(null)
-    try {
-      const data = await listTaskRuns(repo, branch || undefined)
-      setRuns(data.runs)
-      setInstalled(data.workflow_installed)
-    } catch (err) {
-      setError((err as Error).message)
-    } finally {
-      setLoading(false)
-    }
-  }, [repo, branch])
-
-  useEffect(() => { refresh() }, [refresh])
+    ;(async () => {
+      try {
+        const data = await listTaskRuns(repo, branch || undefined)
+        if (cancelled) return
+        setRuns(data.runs)
+        setInstalled(data.workflow_installed)
+      } catch (err) {
+        if (!cancelled) setError((err as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [repo, branch, refreshTick])
 
   // Poll while any run is in progress
   useEffect(() => {

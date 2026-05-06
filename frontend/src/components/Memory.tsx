@@ -9,7 +9,7 @@
  * If the project isn't linked to a repo, the tab explains how to enable it.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useProjects } from '../stores/projects'
 import { listDir, readFile, type DirItem } from '../lib/repo'
 
@@ -34,25 +34,31 @@ export function Memory({ projectId }: Props) {
   const repo   = project?.repo
   const branch = project?.branch || undefined
 
-  const load = useMemo(() => async () => {
+  const [refreshTick, setRefreshTick] = useState(0)
+  const load = () => setRefreshTick((n) => n + 1)
+
+  useEffect(() => {
     if (!repo) return
+    let cancelled = false
     setLoading(true)
     setError(null)
-    try {
-      const dir = await listDir(repo, '.holdenmercer/sessions', branch)
-      const files = dir
-        .filter((it) => it.type === 'file' && it.name.endsWith('.md'))
-        .map((it) => ({ ...it, timestamp: parseTimestamp(it.name) }))
-        .sort((a, b) => b.timestamp - a.timestamp)
-      setItems(files)
-    } catch (err) {
-      setError((err as Error).message)
-    } finally {
-      setLoading(false)
-    }
-  }, [repo, branch])
-
-  useEffect(() => { load() }, [load])
+    ;(async () => {
+      try {
+        const dir = await listDir(repo, '.holdenmercer/sessions', branch)
+        if (cancelled) return
+        const files = dir
+          .filter((it) => it.type === 'file' && it.name.endsWith('.md'))
+          .map((it) => ({ ...it, timestamp: parseTimestamp(it.name) }))
+          .sort((a, b) => b.timestamp - a.timestamp)
+        setItems(files)
+      } catch (err) {
+        if (!cancelled) setError((err as Error).message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [repo, branch, refreshTick])
 
   const open = async (item: SessionFile) => {
     if (!repo) return
