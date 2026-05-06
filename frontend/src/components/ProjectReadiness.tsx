@@ -35,6 +35,7 @@ export function ProjectReadiness({ projectId, onJumpToTab }: Props) {
   const [hasInvariants, setHasInvariants] = useState<boolean | null>(null)
   const [hasGate,       setHasGate]       = useState<boolean | null>(null)
   const [lastGate,      setLastGate]      = useState<'ok' | 'fail' | 'pending' | null>(null)
+  const [loadError,     setLoadError]     = useState<string | null>(null)
   const [collapsed,     setCollapsed]     = useState(false)
 
   useEffect(() => {
@@ -43,12 +44,38 @@ export function ProjectReadiness({ projectId, onJumpToTab }: Props) {
     const repo   = project.repo
     const branch = project.branch || undefined
 
+    // Treat 404 as "directory missing" (the empty/false outcome we want to
+    // render). Anything else (401, 403, 500, network) is a real failure —
+    // surface it via loadError instead of pretending the dir is empty.
+    const isMissing = (err: Error) =>
+      /\b(404|not found)\b/i.test(err.message)
+
+    const safeListDir = async (path: string) => {
+      try {
+        return await listDir(repo, path, branch)
+      } catch (err) {
+        if (isMissing(err as Error)) return []
+        throw err
+      }
+    }
+    const safeGate = async () => {
+      try {
+        return await listGateRuns(repo, branch)
+      } catch (err) {
+        if (isMissing(err as Error)) {
+          return { runs: [], workflow_installed: false }
+        }
+        throw err
+      }
+    }
+
+    setLoadError(null)
     ;(async () => {
       try {
         const [hmDir, ghDir, gateData] = await Promise.all([
-          listDir(repo, '.holdenmercer', branch).catch(() => []),
-          listDir(repo, '.github/workflows', branch).catch(() => []),
-          listGateRuns(repo, branch).catch(() => ({ runs: [], workflow_installed: false })),
+          safeListDir('.holdenmercer'),
+          safeListDir('.github/workflows'),
+          safeGate(),
         ])
         if (cancelled) return
         setHasBrief(hmDir.some((f) => f.name === 'brief.md'))
@@ -58,7 +85,12 @@ export function ProjectReadiness({ projectId, onJumpToTab }: Props) {
         if (!recent) setLastGate(null)
         else if (recent.status !== 'completed') setLastGate('pending')
         else setLastGate(recent.conclusion === 'success' ? 'ok' : 'fail')
-      } catch { /* swallow — readiness is informational */ }
+      } catch (err) {
+        if (cancelled) return
+        // Real failure — render so the user knows the readiness pills
+        // can't be trusted right now.
+        setLoadError((err as Error).message)
+      }
     })()
     return () => { cancelled = true }
   }, [project?.repo, project?.branch])
@@ -109,7 +141,7 @@ export function ProjectReadiness({ projectId, onJumpToTab }: Props) {
 
   const allGreen = pills.every((p) => p.status === 'ok' || p.status === 'unknown')
 
-  if (collapsed || allGreen) return null
+  if (collapsed || (allGreen && !loadError)) return null
 
   return (
     <div
@@ -121,6 +153,21 @@ export function ProjectReadiness({ projectId, onJumpToTab }: Props) {
       <span style={{ fontSize: 12, color: 'var(--text-muted)', marginRight: 4 }}>
         Readiness:
       </span>
+      {loadError && (
+        <span
+          title={loadError}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            padding: '2px 8px', borderRadius: 12, fontSize: 12,
+            border: '1px solid color-mix(in srgb, var(--error) 35%, var(--border))',
+            background: 'var(--error-soft)',
+            color: 'var(--error)',
+          }}
+        >
+          ✗ Couldn't read repo —{' '}
+          {loadError.length > 60 ? loadError.slice(0, 58) + '…' : loadError}
+        </span>
+      )}
       {pills.map((p) => (
         <button
           key={p.id}

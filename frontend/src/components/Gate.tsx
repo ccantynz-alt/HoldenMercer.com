@@ -18,6 +18,7 @@ import {
 } from '../lib/gate'
 import { scanRepo, type GatetestScanResult, type GatetestModule } from '../lib/gatetest'
 import { dispatchTask } from '../lib/jobs'
+import { LiquidOrb } from './LiquidOrb'
 
 interface Props {
   projectId: string
@@ -70,7 +71,10 @@ export function Gate({ projectId, onSwitchToConsole }: Props) {
     return () => { cancelled = true }
   }, [repo, branch, refreshTick])
 
-  // Auto-poll while any run is queued/in_progress
+  // Auto-poll while any run is queued/in_progress. If the underlying fetch
+  // fails (transient or auth), we want the error to surface — refresh()
+  // already routes through the same useEffect that sets `error`, so the
+  // user sees what's happening instead of staring at a stuck spinner.
   useEffect(() => {
     const stillRunning = runs.some((r) => r.status !== 'completed')
     if (!stillRunning) return
@@ -413,50 +417,47 @@ function GatetestPanel({ repo }: { repo: string | null }) {
   const passed   = result?.modules?.filter((m) => m.status === 'passed') ?? []
 
   return (
-    <section
-      style={{
-        marginBottom: 16, padding: 12,
-        border: '1px solid var(--border, #2a2a2a)', borderRadius: 8,
-        background: 'rgba(99,102,241,0.04)',
-      }}
-    >
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 16 }}>🛡 gatetest.ai scanner</h2>
-          <p style={{ margin: '4px 0 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
+    <section className={`hm-ai-card${running ? ' is-running' : ''}`}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+        <div style={{ minWidth: 0 }}>
+          <h2 className="hm-ai-title">
+            <span className="hm-ai-status-dot" aria-hidden />
+            gatetest.ai scanner
+          </h2>
+          <p className="hm-ai-subtitle">
             Your own scanner — security · docs · compatibility · SEO. Runs against <code>{repo}</code>.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
+          {running && (
+            <span className="hm-ai-running" aria-live="polite">
+              <LiquidOrb status="busy" size={28} />
+              <span>scanning<span className="hm-ai-running-dots" /></span>
+            </span>
+          )}
           <select
-            value={tier} onChange={(e) => setTier(e.target.value as 'quick' | 'full')}
+            className="hm-ai-select"
+            value={tier}
+            onChange={(e) => setTier(e.target.value as 'quick' | 'full')}
             disabled={running}
-            style={{
-              padding: '4px 8px', borderRadius: 6,
-              border: '1px solid var(--border, #444)',
-              background: 'var(--bg-elev, #1a1a1a)', color: 'var(--text)', fontSize: 12,
-            }}
           >
-            <option value="quick">Quick (4 modules · ~10s)</option>
-            <option value="full">Full (90 modules · up to 60s)</option>
+            <option value="quick">Quick · 4 modules · ~10s</option>
+            <option value="full">Full · 90 modules · up to 60s</option>
           </select>
-          <button className="hm-btn-primary" onClick={run} disabled={running}>
-            {running ? 'Scanning…' : 'Run scan'}
+          <button
+            className="hm-btn-primary hm-btn-glow"
+            onClick={run}
+            disabled={running}
+          >
+            {running ? 'Scanning' : 'Run scan'}
           </button>
         </div>
       </header>
 
-      {error && <div className="hm-memory-error" style={{ marginTop: 12 }}>{error}</div>}
+      {error && <div className="hm-ai-error">{error}</div>}
 
       {autoDispatched && (
-        <div
-          style={{
-            marginTop: 12, padding: 10, borderRadius: 6,
-            background: 'rgba(34,197,94,0.10)',
-            border: '1px solid rgba(34,197,94,0.3)',
-            fontSize: 13,
-          }}
-        >
+        <div className="hm-ai-banner">
           🔧 <strong>Auto-fix dispatched</strong> — task <code>{autoDispatched}</code>.
           Watch progress in the Tasks tab → 📜 Logs. The agent will iterate
           fix → scan → fix until green or it surfaces stubborn failures.
@@ -464,22 +465,23 @@ function GatetestPanel({ repo }: { repo: string | null }) {
       )}
 
       {result && (
-        <div style={{ marginTop: 12 }}>
-          <div style={{ display: 'flex', gap: 16, fontSize: 13, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <span><strong>{result.totalIssues}</strong> issues</span>
-            <span style={{ color: 'var(--ok, #22c55e)' }}>✓ {passed.length} passed</span>
-            <span style={{ color: 'var(--error, #ef4444)' }}>✗ {failed.length} failed</span>
-            {skipped.length > 0 && <span style={{ color: 'var(--text-muted)' }}>· {skipped.length} skipped</span>}
-            <span style={{ color: 'var(--text-muted)', marginLeft: 'auto' }}>
+        <div>
+          <div className="hm-ai-stats">
+            <span className="hm-ai-stat"><strong>{result.totalIssues}</strong>&nbsp;issues</span>
+            <span className="hm-ai-stat is-ok">✓ {passed.length} passed</span>
+            <span className="hm-ai-stat is-fail">✗ {failed.length} failed</span>
+            {skipped.length > 0 && (
+              <span className="hm-ai-stat">· {skipped.length} skipped</span>
+            )}
+            <span className="hm-ai-stat-meta">
               {result.duration?.toFixed(1)}s · tier: {result.tier}
             </span>
             {failed.length > 0 && (
               <button
-                className="hm-btn-primary"
+                className="hm-btn-primary hm-btn-glow"
                 onClick={() => fixAll(failed)}
                 disabled={dispatching !== null}
                 title={`Dispatch ONE background task to fix all ${failed.length} failed modules. Branch + PR + gate-protected merge.`}
-                style={{ marginLeft: 8 }}
               >
                 {dispatching === '__all__'
                   ? 'Dispatching…'
@@ -488,55 +490,48 @@ function GatetestPanel({ repo }: { repo: string | null }) {
             )}
           </div>
 
-          {failed.map((m) => (
-            <details
-              key={m.name}
-              open={expanded[m.name] ?? true}
-              onToggle={(e) => setExpanded((s) => ({ ...s, [m.name]: (e.target as HTMLDetailsElement).open }))}
-              style={{
-                marginBottom: 8, padding: 8,
-                background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.25)',
-                borderRadius: 6,
-              }}
-            >
-              <summary
-                style={{
-                  cursor: 'pointer', fontSize: 13, color: 'var(--error)',
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                }}
+          <div style={{ marginTop: 12 }}>
+            {failed.map((m) => (
+              <details
+                key={m.name}
+                className="hm-ai-fail"
+                open={expanded[m.name] ?? true}
+                onToggle={(e) => setExpanded((s) => ({ ...s, [m.name]: (e.target as HTMLDetailsElement).open }))}
               >
-                <span>
-                  ✗ <strong>{m.name}</strong> · {m.issues ?? 0} issue{m.issues === 1 ? '' : 's'}
-                </span>
-                <button
-                  className="hm-btn-ghost"
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); fixOne(m) }}
-                  disabled={dispatching !== null}
-                  title={`Dispatch a focused background task to fix only "${m.name}". Branch + PR + gate-protected merge.`}
-                  style={{ fontSize: 11 }}
-                >
-                  {dispatching === m.name ? 'Dispatching…' : '🔧 Have Claude fix this'}
-                </button>
-              </summary>
-              {m.details && m.details.length > 0 && (
-                <ul style={{ margin: '8px 0 0 0', paddingLeft: 20, fontSize: 12 }}>
-                  {m.details.map((d, i) => <li key={i}>{d}</li>)}
-                </ul>
-              )}
-            </details>
-          ))}
+                <summary>
+                  <span className="hm-ai-fail-name">
+                    ✗ <strong>{m.name}</strong> · {m.issues ?? 0} issue{m.issues === 1 ? '' : 's'}
+                  </span>
+                  <button
+                    className="hm-btn-ghost"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); fixOne(m) }}
+                    disabled={dispatching !== null}
+                    title={`Dispatch a focused background task to fix only "${m.name}". Branch + PR + gate-protected merge.`}
+                    style={{ fontSize: 11 }}
+                  >
+                    {dispatching === m.name ? 'Dispatching…' : '🔧 Have Claude fix this'}
+                  </button>
+                </summary>
+                {m.details && m.details.length > 0 && (
+                  <ul style={{ margin: '8px 0 0 20px', fontSize: 12, color: 'var(--text-secondary)' }}>
+                    {m.details.map((d, i) => <li key={i}>{d}</li>)}
+                  </ul>
+                )}
+              </details>
+            ))}
 
-          {(passed.length > 0 || skipped.length > 0) && (
-            <details style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-              <summary style={{ cursor: 'pointer' }}>
-                {passed.length} passed, {skipped.length} skipped — click to expand
-              </summary>
-              <ul style={{ margin: '8px 0 0 0', paddingLeft: 20 }}>
-                {passed.map((m) => <li key={m.name} style={{ color: 'var(--ok)' }}>✓ {m.name}</li>)}
-                {skipped.map((m) => <li key={m.name}>· {m.name} (skipped)</li>)}
-              </ul>
-            </details>
-          )}
+            {(passed.length > 0 || skipped.length > 0) && (
+              <details style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+                <summary style={{ cursor: 'pointer' }}>
+                  {passed.length} passed, {skipped.length} skipped — click to expand
+                </summary>
+                <ul style={{ margin: '8px 0 0 20px' }}>
+                  {passed.map((m) => <li key={m.name} style={{ color: '#0f7e5e' }}>✓ {m.name}</li>)}
+                  {skipped.map((m) => <li key={m.name}>· {m.name} (skipped)</li>)}
+                </ul>
+              </details>
+            )}
+          </div>
         </div>
       )}
     </section>
