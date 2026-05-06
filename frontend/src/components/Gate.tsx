@@ -17,7 +17,7 @@ import {
   type GateRun,
 } from '../lib/gate'
 import { scanRepo, type GatetestScanResult, type GatetestModule } from '../lib/gatetest'
-import { dispatchTask } from '../lib/jobs'
+import { dispatchTask, listTaskRuns, fetchRunLogs, type TaskRun } from '../lib/jobs'
 import { estimateTaskCost } from '../stores/usage'
 import { toast } from '../stores/toast'
 import { checkDispatch, effectiveDispatchModel } from '../lib/dispatchGuard'
@@ -331,8 +331,75 @@ function GatetestPanel({ repo }: { repo: string | null }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [dispatching, setDispatching] = useState<string | null>(null)
   const [autoDispatched, setAutoDispatched] = useState<string | null>(null)
+  /** Live "fix in progress" state — when set, the panel shows inline
+   *  progress + agent logs + auto-rescans when the run completes. */
+  const [activeFix, setActiveFix] = useState<{
+    taskId: string
+    runId:  number | null
+    status: 'queued' | 'in_progress' | 'completed' | 'unknown'
+    conclusion: string | null
+    startedAt: number
+    logs: string
+    moduleNames: string[]    // which findings this fix targeted
+  } | null>(null)
+  /** Snapshot of findings before the fix dispatched. Used to render
+   *  "✓ resolved" badges on findings that disappeared between scans. */
+  const [previousFailedNames, setPreviousFailedNames] = useState<string[]>([])
 
   if (!gatetestKey || !repo) return null
+
+  // Live fix monitor — polls task status + streams logs while a fix runs.
+  // When the task completes, auto-runs a fresh gatetest scan so the user
+  // sees the panel update without clicking anything.
+  useEffect(() => {
+    if (!activeFix || activeFix.status === 'completed') return
+    let cancelled = false
+    const tick = async () => {
+      try {
+        // Find the matching task run from the central HM repo's task list.
+        const runs = (await listTaskRuns(repo, undefined)).runs as TaskRun[]
+        // Match by either runId (if we already discovered it) OR by branch
+        // pattern containing the task_id (the agent runs on claude/* and
+        // the central workflow doesn't expose task_id directly in run
+        // metadata — we match on what we can).
+        const match = activeFix.runId
+          ? runs.find((r) => r.id === activeFix.runId)
+          : runs.find((r) => r.branch && r.branch.startsWith('claude/')) || runs[0]
+        if (!match) return
+
+        // Pull live logs for the matched run
+        let logs = activeFix.logs
+        try {
+          const logsResp = await fetchRunLogs(match.id)
+          logs = logsResp.logs || logs
+        } catch { /* swallow — keep last logs */ }
+
+        if (cancelled) return
+        const status: 'queued' | 'in_progress' | 'completed' | 'unknown' =
+          match.status === 'queued'      ? 'queued'
+          : match.status === 'in_progress' ? 'in_progress'
+          : match.status === 'completed' ? 'completed'
+          : 'unknown'
+        setActiveFix((prev) => prev ? {
+          ...prev,
+          runId:      match.id,
+          status,
+          conclusion: match.conclusion,
+          logs,
+        } : prev)
+
+        // On completion, fire a fresh gatetest scan after a short delay
+        // (give GitHub a beat to finalise the merged PR).
+        if (status === 'completed') {
+          setTimeout(() => { if (!cancelled) run() }, 4000)
+        }
+      } catch { /* swallow tick errors */ }
+    }
+    tick()
+    const id = setInterval(tick, 5000)
+    return () => { cancelled = true; clearInterval(id) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFix?.taskId])
 
   const run = async () => {
     setRunning(true)
@@ -361,6 +428,16 @@ function GatetestPanel({ repo }: { repo: string | null }) {
               max_iters: plan.maxIters,
             })
             setAutoDispatched(dispatched.task_id)
+            setPreviousFailedNames(failedNow.map((m) => m.name))
+            setActiveFix({
+              taskId:      dispatched.task_id,
+              runId:       null,
+              status:      'queued',
+              conclusion:  null,
+              startedAt:   Date.now(),
+              logs:        '',
+              moduleNames: failedNow.map((m) => m.name),
+            })
           } catch (autoErr) {
             setError(`Auto-fix failed to dispatch: ${(autoErr as Error).message}`)
           }
@@ -399,10 +476,22 @@ function GatetestPanel({ repo }: { repo: string | null }) {
         model:     effectiveDispatchModel(plan),
         max_iters: plan.maxIters,
       })
+      // Snapshot which modules are failing right now so we can render
+      // ✓ resolved badges after the fix re-runs the scan.
+      setPreviousFailedNames((result?.modules || []).filter((x) => x.status === 'failed').map((x) => x.name))
+      setActiveFix({
+        taskId:      dispatched.task_id,
+        runId:       null,
+        status:      'queued',
+        conclusion:  null,
+        startedAt:   Date.now(),
+        logs:        '',
+        moduleNames: [m.name],
+      })
       toast(
         'success',
         `Fix dispatched for "${m.name}"`,
-        `task ${dispatched.task_id} — Tasks tab → 📜 Logs for live progress`
+        `Watch live progress on this panel. Auto-rescans when done.`
       )
     } catch (err) {
       setError(`Fix dispatch failed: ${(err as Error).message}`)
@@ -437,10 +526,20 @@ function GatetestPanel({ repo }: { repo: string | null }) {
         model:     effectiveDispatchModel(plan),
         max_iters: plan.maxIters,
       })
+      setPreviousFailedNames(failedModules.map((m) => m.name))
+      setActiveFix({
+        taskId:      dispatched.task_id,
+        runId:       null,
+        status:      'queued',
+        conclusion:  null,
+        startedAt:   Date.now(),
+        logs:        '',
+        moduleNames: failedModules.map((m) => m.name),
+      })
       toast(
         'success',
         `Auto-fix dispatched for ${failedModules.length} module${failedModules.length === 1 ? '' : 's'}`,
-        `task ${dispatched.task_id} — Tasks tab → 📜 Logs for live progress`
+        `Watch live progress on this panel. Auto-rescans when done.`
       )
     } catch (err) {
       setError(`Auto-fix dispatch failed: ${(err as Error).message}`)
@@ -492,12 +591,21 @@ function GatetestPanel({ repo }: { repo: string | null }) {
 
       {error && <div className="hm-ai-error">{error}</div>}
 
-      {autoDispatched && (
+      {autoDispatched && !activeFix && (
         <div className="hm-ai-banner">
           🔧 <strong>Auto-fix dispatched</strong> — task <code>{autoDispatched}</code>.
           Watch progress in the Tasks tab → 📜 Logs. The agent will iterate
           fix → scan → fix until green or it surfaces stubborn failures.
         </div>
+      )}
+
+      {activeFix && (
+        <LiveFixProgress
+          fix={activeFix}
+          onDismiss={() => setActiveFix(null)}
+          previousFailedNames={previousFailedNames}
+          currentFailedNames={(result?.modules || []).filter((m) => m.status === 'failed').map((m) => m.name)}
+        />
       )}
 
       {result && (
@@ -538,6 +646,34 @@ function GatetestPanel({ repo }: { repo: string | null }) {
               </>
             )}
           </div>
+
+          {/* "Resolved this run" — modules that were failing before the
+              auto-fix dispatch but are now passing. Acknowledgment that the
+              loop actually did something. */}
+          {previousFailedNames.length > 0 && (() => {
+            const currentFailed = new Set(failed.map((m) => m.name))
+            const resolved = previousFailedNames.filter((n) => !currentFailed.has(n))
+            if (resolved.length === 0) return null
+            return (
+              <div
+                style={{
+                  marginTop: 12, padding: 8,
+                  background: 'rgba(34,197,94,0.08)',
+                  border: '1px solid rgba(34,197,94,0.3)',
+                  borderRadius: 6, fontSize: 13,
+                }}
+              >
+                <strong style={{ color: 'var(--ok, #22c55e)' }}>
+                  ✓ Resolved this run ({resolved.length})
+                </strong>
+                <ul style={{ margin: '6px 0 0 20px', padding: 0 }}>
+                  {resolved.map((n) => (
+                    <li key={n} style={{ color: 'var(--ok, #22c55e)' }}>{n}</li>
+                  ))}
+                </ul>
+              </div>
+            )
+          })()}
 
           <div style={{ marginTop: 12 }}>
             {failed.map((m) => (
@@ -657,4 +793,136 @@ When done: report_result with one paragraph covering:
   • Final gatetest.ai scan result — how many of the ${modules.length}
     modules now pass; if any still fail, name them + why
   • The PR URL`
+}
+
+/**
+ * LiveFixProgress — inline live view of a fix-in-flight.
+ *
+ * Shows: status icon, time elapsed, list of targeted modules with
+ * per-module ✓ once they're resolved (compared to currentFailedNames),
+ * tail of agent logs, and a dismiss button.
+ *
+ * The user sees the panel come alive instead of staring at a static
+ * list and wondering whether anything's happening.
+ */
+function LiveFixProgress({ fix, onDismiss, previousFailedNames, currentFailedNames }: {
+  fix: {
+    taskId: string
+    runId:  number | null
+    status: 'queued' | 'in_progress' | 'completed' | 'unknown'
+    conclusion: string | null
+    startedAt: number
+    logs: string
+    moduleNames: string[]
+  }
+  onDismiss: () => void
+  previousFailedNames: string[]
+  currentFailedNames:  string[]
+}) {
+  const elapsedSec = Math.floor((Date.now() - fix.startedAt) / 1000)
+  const elapsedLabel = elapsedSec < 60
+    ? `${elapsedSec}s`
+    : `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s`
+
+  const isDone   = fix.status === 'completed'
+  const isOk     = isDone && fix.conclusion === 'success'
+  const isFailed = isDone && fix.conclusion && fix.conclusion !== 'success' && fix.conclusion !== 'skipped'
+
+  const headerColor = isFailed ? 'var(--error, #ef4444)' : isOk ? 'var(--ok, #22c55e)' : 'var(--warn, #eab308)'
+  const headerBg = isFailed ? 'rgba(239,68,68,0.08)' : isOk ? 'rgba(34,197,94,0.08)' : 'rgba(234,179,8,0.08)'
+  const icon = isOk ? '✅' : isFailed ? '❌' : fix.status === 'queued' ? '◌' : '◌'
+  const headline = isOk
+    ? `Repair complete — re-scanning…`
+    : isFailed
+    ? `Repair task ${fix.conclusion}`
+    : fix.status === 'queued'
+    ? `Repair queued — workflow starting…`
+    : `Repair in progress`
+
+  // Per-module status: resolved (was failing in prev scan, not in current),
+  // pending (still failing in current scan), or unknown if no current scan yet.
+  const currentSet = new Set(currentFailedNames)
+  const wasFailingSet = new Set(previousFailedNames)
+  const moduleStatus = (name: string): 'resolved' | 'pending' | 'unknown' => {
+    if (!wasFailingSet.has(name)) return 'unknown'
+    return currentSet.has(name) ? 'pending' : 'resolved'
+  }
+
+  // Tail of logs (last 60 lines) — keeps the view from getting overwhelming
+  // while still feeling alive.
+  const logTail = (() => {
+    if (!fix.logs) return ''
+    const lines = fix.logs.split('\n')
+    if (lines.length <= 60) return fix.logs
+    return ['[…earlier output trimmed…]', ...lines.slice(-60)].join('\n')
+  })()
+
+  return (
+    <section
+      style={{
+        marginTop: 12, marginBottom: 16, padding: 12,
+        background: headerBg, border: `1px solid ${headerColor}`,
+        borderRadius: 8,
+      }}
+    >
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+        <span>
+          <span style={{ marginRight: 8 }}>{icon}</span>
+          <strong style={{ color: headerColor }}>{headline}</strong>
+          <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+            {fix.status} · {elapsedLabel}
+            {fix.taskId && <> · <code style={{ fontSize: 11 }}>{fix.taskId}</code></>}
+          </span>
+        </span>
+        <button
+          onClick={onDismiss}
+          style={{
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            color: 'var(--text-muted)', fontSize: 18, lineHeight: 1, padding: 0,
+          }}
+          title="Dismiss this view (the task continues running in the background)"
+        >
+          ×
+        </button>
+      </header>
+
+      {fix.moduleNames.length > 0 && (
+        <ul style={{ margin: '8px 0 0 0', padding: 0, listStyle: 'none', fontSize: 13 }}>
+          {fix.moduleNames.map((n) => {
+            const s = moduleStatus(n)
+            const dot = s === 'resolved' ? '✓' : s === 'pending' ? '◌' : '·'
+            const color = s === 'resolved' ? 'var(--ok, #22c55e)' : s === 'pending' ? 'var(--warn, #eab308)' : 'var(--text-muted)'
+            const label = s === 'resolved' ? 'resolved' : s === 'pending' ? 'still failing' : 'pending re-scan'
+            return (
+              <li key={n} style={{ color, padding: '2px 0' }}>
+                <span style={{ marginRight: 6 }}>{dot}</span>
+                <strong>{n}</strong>
+                <span style={{ marginLeft: 8, fontSize: 11, opacity: 0.8 }}>{label}</span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      {logTail && (
+        <details style={{ marginTop: 10 }}>
+          <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--text-muted)' }}>
+            Live agent logs ({fix.logs.length.toLocaleString()} chars · auto-refreshes every 5s)
+          </summary>
+          <pre style={{
+            margin: '6px 0 0 0', padding: 10,
+            background: 'var(--bg, #0a0a0b)',
+            color: 'var(--text, #ddd)',
+            fontSize: 11, lineHeight: 1.4,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+            maxHeight: '40vh', overflow: 'auto',
+            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            borderRadius: 6,
+          }}>
+            {logTail}
+          </pre>
+        </details>
+      )}
+    </section>
+  )
 }
