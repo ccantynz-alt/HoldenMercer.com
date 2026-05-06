@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useProjects } from '../stores/projects'
 import {
   fetchTaskResult, listTaskRuns, setupTaskWorkflow, setupCronWorkflow,
-  cancelTaskRun, deleteTaskRun,
+  cancelTaskRun, deleteTaskRun, fetchRunLogs,
   type TaskRun,
 } from '../lib/jobs'
 import { notify, permission } from '../lib/notify'
@@ -44,6 +44,10 @@ export function Tasks({ projectId }: Props) {
   const [resultLoading, setResultLoading] = useState(false)
   const [secretsUrl, setSecretsUrl] = useState<string | null>(null)
   const [cronInfo,   setCronInfo]   = useState<{ url: string; seeded: boolean } | null>(null)
+  const [logsRunId,  setLogsRunId]  = useState<number | null>(null)
+  const [logsText,   setLogsText]   = useState<string>('')
+  const [logsLoading, setLogsLoading] = useState(false)
+  const [logsStatus,  setLogsStatus]  = useState<string>('')
 
   // Track last-known status per run so we can fire one notification on
   // the in_progress → completed transition without spamming on every poll.
@@ -87,6 +91,31 @@ export function Tasks({ projectId }: Props) {
     const id = setInterval(refresh, 10_000)
     return () => clearInterval(id)
   }, [runs, refresh])
+
+  // Poll the live logs while the log viewer is open AND its run isn't done yet
+  useEffect(() => {
+    if (logsRunId === null) return
+    let cancelled = false
+    const fetchOnce = async () => {
+      setLogsLoading(true)
+      try {
+        const data = await fetchRunLogs(logsRunId)
+        if (cancelled) return
+        setLogsText(data.logs || '(no logs yet)')
+        setLogsStatus(data.status)
+      } catch (err) {
+        if (!cancelled) setLogsText(`Failed to fetch logs: ${(err as Error).message}`)
+      } finally {
+        if (!cancelled) setLogsLoading(false)
+      }
+    }
+    fetchOnce()
+    const id = setInterval(() => {
+      if (logsStatus !== 'completed') fetchOnce()
+    }, 5000)
+    return () => { cancelled = true; clearInterval(id) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logsRunId])
 
   // Fire notifications on in_progress → completed transitions
   useEffect(() => {
@@ -292,6 +321,13 @@ export function Tasks({ projectId }: Props) {
                 </span>
               </div>
               <div className="hm-gate-row-actions">
+                <button
+                  className="hm-btn-ghost"
+                  onClick={() => setLogsRunId(run.id)}
+                  title="View live logs in HM (no GitHub round-trip)"
+                >
+                  📜 Logs
+                </button>
                 <a className="hm-btn-ghost" href={run.html_url} target="_blank" rel="noreferrer">
                   Open ↗
                 </a>
@@ -332,6 +368,67 @@ export function Tasks({ projectId }: Props) {
           )
         })}
       </ul>
+
+      {logsRunId !== null && (
+        <div
+          onClick={() => setLogsRunId(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 900,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 24,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(1100px, 96vw)',
+              height: '80vh',
+              background: 'var(--bg-elev, #1a1a1a)',
+              border: '1px solid var(--border, #2a2a2a)',
+              borderRadius: 12,
+              display: 'flex', flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
+            <header style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '12px 16px', borderBottom: '1px solid var(--border, #2a2a2a)',
+            }}>
+              <span style={{ fontWeight: 600 }}>
+                Live logs · run #{logsRunId}{' '}
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 8 }}>
+                  {logsStatus || '…'}{logsStatus !== 'completed' && logsLoading ? ' · refreshing' : ''}
+                </span>
+              </span>
+              <button
+                className="hm-icon-btn"
+                onClick={() => setLogsRunId(null)}
+                aria-label="Close logs"
+              >
+                ×
+              </button>
+            </header>
+            <pre style={{
+              flex: 1, overflow: 'auto', margin: 0, padding: 12,
+              background: 'var(--bg, #0a0a0a)', color: 'var(--text, #ddd)',
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              fontSize: 12, lineHeight: 1.5,
+              whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            }}>
+              {logsText || (logsLoading ? 'Loading logs…' : '(empty)')}
+            </pre>
+            <footer style={{
+              padding: '8px 16px', borderTop: '1px solid var(--border, #2a2a2a)',
+              fontSize: 11, color: 'var(--text-muted)',
+              display: 'flex', justifyContent: 'space-between',
+            }}>
+              <span>Auto-refreshes every 5s while the run is in-flight</span>
+              <span>{logsText.length.toLocaleString()} chars</span>
+            </footer>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

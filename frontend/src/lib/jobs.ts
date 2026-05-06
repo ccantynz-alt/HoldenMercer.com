@@ -95,3 +95,11 @@ export async function checkRepoSecret(
 ): Promise<{ set: boolean | null; secret_name: string; reason?: string }> {
   return post('/api/jobs/check-secret', { repo, secret_name })
 }
+
+export async function fetchRunLogs(run_id: number): Promise<{
+  logs:   string
+  status: string
+  jobs:   Array<{ name: string; status: string; conclusion: string | null }>
+}> {
+  return post('/api/jobs/run-logs', { run_id })
+}
