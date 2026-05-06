@@ -2,6 +2,15 @@
   "version": 1,
   "active": [
     {
+      "branch": "claude/fix-react-185-auditlog-loop",
+      "agent": "task:20260506-121439-feba8f",
+      "scope": [
+        "frontend/src/components/AuditLog.tsx"
+      ],
+      "startedAt": "2026-05-06T12:15:39+00:00",
+      "intent": "Fix React #185 max-update-depth crash in AuditLog. The fetch effect depends on `linked` (a useMemo'd array filtered from projects). When upstream renders cause `projects` reference changes, `linked` rebuilds, the effect re-fires, calls setS"
+    },
+    {
       "branch": "claude/include-component-stack-in-self-repair",
       "agent": "task:20260506-120712-58ddc4",
       "scope": [
