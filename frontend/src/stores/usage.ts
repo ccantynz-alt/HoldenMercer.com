@@ -55,6 +55,44 @@ export function priceFor(r: UsageRecord): number {
   )
 }
 
+/**
+ * Forecast the dollar cost of a background task BEFORE dispatching it.
+ *
+ * Heuristic:
+ *   - System prompt + tools cached: ~6,000 tokens, paid once at cache write,
+ *     then cache_read on each subsequent turn (~10% of input price).
+ *   - Per-turn input (user/tool messages): ~3,000 tokens
+ *   - Per-turn output (assistant + tool calls): ~1,500 tokens
+ *
+ * Order-of-magnitude estimate — actual usage varies with prompt length,
+ * tool response size, and model. Good enough to budget against.
+ */
+export function estimateTaskCost(model: string, maxIters: number): {
+  estimatedDollars: number
+  estimatedTokens:  number
+  notes:            string
+} {
+  const SYSTEM_TOKENS         = 6000
+  const PER_TURN_INPUT_TOKENS = 3000
+  const PER_TURN_OUTPUT       = 1500
+  const turns = Math.max(1, Math.min(100, maxIters))
+
+  const r: UsageRecord = {
+    model,
+    input_tokens:                PER_TURN_INPUT_TOKENS * turns,
+    output_tokens:               PER_TURN_OUTPUT * turns,
+    cache_read_input_tokens:     SYSTEM_TOKENS * (turns - 1),
+    cache_creation_input_tokens: SYSTEM_TOKENS,
+  }
+  return {
+    estimatedDollars: priceFor(r),
+    estimatedTokens:
+      r.input_tokens + r.output_tokens +
+      r.cache_read_input_tokens + r.cache_creation_input_tokens,
+    notes: `Heuristic: ${turns} turns × (${PER_TURN_INPUT_TOKENS} in + ${PER_TURN_OUTPUT} out) + ${SYSTEM_TOKENS} cached system. Real cost can vary 0.5×–2×.`,
+  }
+}
+
 function todayKey(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
