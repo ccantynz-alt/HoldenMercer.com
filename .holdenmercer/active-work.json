@@ -2,17 +2,6 @@
   "version": 1,
   "active": [
     {
-      "branch": "claude/seo-root-files",
-      "agent": "task:20260506-144846-2fd3dc",
-      "scope": [
-        "robots.txt",
-        "sitemap.xml",
-        "app/layout.html"
-      ],
-      "startedAt": "2026-05-06T14:50:05+00:00",
-      "intent": "Fix gatetest.ai 'seo' module (9 findings) by mirroring the existing frontend SEO assets at the repo root where the scanner looks: add /robots.txt, /sitemap.xml, and /app/layout.html with full OG tags (og:title, og:description, og:image), Tw"
-    },
-    {
       "branch": "claude/gatetest-repair-seo-compat-ci",
       "agent": "task:20260506-144825-d6306f",
       "scope": [
