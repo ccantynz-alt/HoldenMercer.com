@@ -232,7 +232,10 @@ function SystemHome({
   onOpenProject: (id: string) => void
   onOpenSettings: () => void
 }) {
-  const [tab, setTab] = useState<SystemTab>('mission')
+  // Default to "projects" (the activity dashboard) — Mission Control's
+  // animated orb was distracting. Mission tab is still available for users
+  // who want it.
+  const [tab, setTab] = useState<SystemTab>('projects')
   return (
     <div>
       <nav className="hm-tabs" style={{ marginBottom: 0, borderBottom: '1px solid var(--border, #2a2a2a)' }}>

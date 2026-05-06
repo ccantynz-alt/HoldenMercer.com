@@ -61,6 +61,59 @@ function normalizeRepo(input: string): string {
     .replace(/\/+$/, '')
 }
 
+// ── Keychain — last-resort backup of the painful-to-re-enter values ────────
+// Stored in a SEPARATE localStorage key from the main settings so it survives:
+//   • Schema migrations of the settings store
+//   • Hard reset (we restore from keychain if main settings is empty)
+//   • Nuclear reset (the user explicitly opts out, but this still gives a
+//     last-look "you sure?" via the export button in Settings)
+//
+// Writes happen via setAnthropicKey / setGithubToken / setGatetestKey, AND
+// every settings hydrate that reads non-empty values. So the keychain is
+// always at-least-as-fresh as the main settings.
+
+const KEYCHAIN_KEY = 'holdenmercer:keychain:v1'
+
+interface Keychain {
+  anthropicKey: string
+  githubToken:  string
+  gatetestKey:  string
+  updatedAt:    number
+}
+
+function readKeychain(): Partial<Keychain> {
+  try {
+    const raw = localStorage.getItem(KEYCHAIN_KEY)
+    if (!raw) return {}
+    return JSON.parse(raw) as Keychain
+  } catch { return {} }
+}
+
+function writeKeychain(patch: Partial<Keychain>) {
+  try {
+    const current = readKeychain()
+    const next: Keychain = {
+      anthropicKey: patch.anthropicKey ?? current.anthropicKey ?? '',
+      githubToken:  patch.githubToken  ?? current.githubToken  ?? '',
+      gatetestKey:  patch.gatetestKey  ?? current.gatetestKey  ?? '',
+      updatedAt:    Date.now(),
+    }
+    // Don't overwrite a non-empty stored value with empty unless explicitly
+    // null'd (used for the Export+wipe flow). Empty incoming is a no-op.
+    if (patch.anthropicKey === '') next.anthropicKey = current.anthropicKey ?? ''
+    if (patch.githubToken  === '') next.githubToken  = current.githubToken  ?? ''
+    if (patch.gatetestKey  === '') next.gatetestKey  = current.gatetestKey  ?? ''
+    localStorage.setItem(KEYCHAIN_KEY, JSON.stringify(next))
+  } catch { /* swallow */ }
+}
+
+/** Reads from the keychain backup. Use this in recovery flows when the
+ *  main settings store has empty key fields but the keychain might still
+ *  hold a value the user pasted on a previous load. */
+export function recoverKeychain(): Partial<Keychain> {
+  return readKeychain()
+}
+
 export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
@@ -76,10 +129,22 @@ export const useSettings = create<SettingsState>()(
       dockedWidth:  480,
       selfRepairRepo:   '',
       selfRepairBranch: '',
-      setAnthropicKey: (key)   => set({ anthropicKey: key.trim() }),
-      setGithubToken:  (key)   => set({ githubToken: key.trim() }),
+      setAnthropicKey: (key)   => {
+        const v = key.trim()
+        set({ anthropicKey: v })
+        if (v) writeKeychain({ anthropicKey: v })
+      },
+      setGithubToken:  (key)   => {
+        const v = key.trim()
+        set({ githubToken: v })
+        if (v) writeKeychain({ githubToken: v })
+      },
       setGithubOrg:    (org)   => set({ githubOrg: org.trim() }),
-      setGatetestKey:  (key)   => set({ gatetestKey: key.trim() }),
+      setGatetestKey:  (key)   => {
+        const v = key.trim()
+        set({ gatetestKey: v })
+        if (v) writeKeychain({ gatetestKey: v })
+      },
       setAutoFixGatetest: (on) => set({ autoFixGatetest: !!on }),
       setGlobalPrefs:     (t)  => set({ globalPrefs: t }),
       setAutonomy:     (mode)  => set({ autonomy: mode }),
@@ -127,6 +192,36 @@ export const useSettings = create<SettingsState>()(
       // editing in one would let the OTHER tab silently overwrite on
       // next save.
       skipHydration: false,
+
+      // After persist rehydrates the store, restore any empty keys from
+      // the keychain backup. This handles every "I lost my keys after an
+      // update" scenario: if the persisted state migrates wrong, or someone
+      // clicks Hard Reset on the OLD bundle (which used to wipe everything),
+      // or any other path that leaves the store with empty keys — we walk
+      // forward by recovering from the separate keychain entry that's
+      // never touched by the settings store.
+      onRehydrateStorage: () => (state) => {
+        if (!state) return
+        try {
+          const k = readKeychain()
+          const patch: Partial<SettingsState> = {}
+          if (!state.anthropicKey && k.anthropicKey) patch.anthropicKey = k.anthropicKey
+          if (!state.githubToken  && k.githubToken)  patch.githubToken  = k.githubToken
+          if (!state.gatetestKey  && k.gatetestKey)  patch.gatetestKey  = k.gatetestKey
+          if (Object.keys(patch).length > 0) {
+            // eslint-disable-next-line no-console
+            console.info('[hm] keychain recovery restored:', Object.keys(patch).join(', '))
+            useSettings.setState(patch)
+          }
+          // Always sync any non-empty store values forward into keychain so
+          // the next session is even safer.
+          writeKeychain({
+            anthropicKey: state.anthropicKey,
+            githubToken:  state.githubToken,
+            gatetestKey:  state.gatetestKey,
+          })
+        } catch { /* swallow */ }
+      },
     },
   ),
 )

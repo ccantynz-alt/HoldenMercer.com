@@ -440,7 +440,6 @@ function GatetestPanel({ repo }: { repo: string | null }) {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '0 0 auto' }}>
           {running && (
             <span className="hm-ai-running" aria-live="polite">
-              <LiquidOrb status="busy" size={28} />
               <span>scanning<span className="hm-ai-running-dots" /></span>
             </span>
           )}
