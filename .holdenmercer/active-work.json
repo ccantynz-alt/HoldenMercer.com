@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "active": [
+    {
+      "branch": "claude/fix-react-185-audit-loop",
+      "agent": "task:20260506-113915-8a6940",
+      "scope": [
+        "frontend/src/components/AuditLog.tsx"
+      ],
+      "startedAt": "2026-05-06T11:42:53+00:00",
+      "intent": "Fix dashboard React #185 max-update-depth crash \u2014 AuditLog has the same useMemo+useEffect pattern that was already fixed in AdminHome but never applied to AuditLog. Switching the effect dep from the memoized 'linked' array to the underlying"
+    }
+  ]
+}
