@@ -27,6 +27,7 @@ import { dispatchTask, listTaskRuns, fetchRunLogs, type TaskRun } from '../lib/j
 import { useSettings } from '../stores/settings'
 import { toast } from '../stores/toast'
 import { checkDispatch, effectiveDispatchModel } from '../lib/dispatchGuard'
+import { BlockLibraryModal } from './BlockLibraryModal'
 
 interface Props {
   projectId: string
@@ -45,6 +46,7 @@ export function Preview({ projectId }: Props) {
   const [editMode, setEditMode]   = useState(false)
   const [findText, setFindText]   = useState('')
   const [replaceText, setReplaceText] = useState('')
+  const [blockLibraryOpen, setBlockLibraryOpen] = useState(false)
   const [activeEdit, setActiveEdit] = useState<{
     taskId: string
     runId:  number | null
@@ -282,17 +284,24 @@ export function Preview({ projectId }: Props) {
               onDispatch={dispatchEdit}
               activeEdit={activeEdit}
               onDismissEdit={() => setActiveEdit(null)}
+              onOpenBlockLibrary={() => setBlockLibraryOpen(true)}
             />
           )}
         </div>
       ) : null}
+
+      <BlockLibraryModal
+        open={blockLibraryOpen}
+        onClose={() => setBlockLibraryOpen(false)}
+        repo={project.repo ?? ''}
+      />
     </div>
   )
 }
 
 // ── EditPanel — side panel for the Layer 1 visual builder ───────────────────
 
-function EditPanel({ find, setFind, replace, setReplace, onDispatch, activeEdit, onDismissEdit }: {
+function EditPanel({ find, setFind, replace, setReplace, onDispatch, activeEdit, onDismissEdit, onOpenBlockLibrary }: {
   find: string
   setFind: (s: string) => void
   replace: string
@@ -308,6 +317,7 @@ function EditPanel({ find, setFind, replace, setReplace, onDispatch, activeEdit,
     replace: string
   } | null
   onDismissEdit: () => void
+  onOpenBlockLibrary: () => void
 }) {
   const elapsedSec = activeEdit ? Math.floor((Date.now() - activeEdit.startedAt) / 1000) : 0
   const elapsed = elapsedSec < 60 ? `${elapsedSec}s` : `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s`
@@ -322,6 +332,14 @@ function EditPanel({ find, setFind, replace, setReplace, onDispatch, activeEdit,
         overflow: 'auto',
       }}
     >
+      <button
+        className="hm-btn-primary"
+        onClick={onOpenBlockLibrary}
+        style={{ alignSelf: 'flex-start' }}
+      >
+        ＋ Add a block (hero / gallery / form / pricing / FAQ / …)
+      </button>
+
       <header>
         <h3 style={{ margin: 0, fontSize: 15 }}>✎ Edit copy</h3>
         <p style={{ margin: '4px 0 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
